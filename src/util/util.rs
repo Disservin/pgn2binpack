@@ -8,7 +8,10 @@ use sfbinpack::chess::{
 
 use shakmaty::{Move, Role, Square};
 
-pub fn parse_eval_cp(comment: &str) -> Option<i16> {
+pub fn parse_eval_cp(comment: &str) -> Result<Option<i16>, &'static str> {
+    if (comment == "book") || (comment == "Book") || (comment == "No result") {
+        return Ok(None);
+    }
     // Matches examples like:
     // {+1.01/26 1.2s} {-0.34/15} {+0.00} {-M21/32 0.5s} {+M21/32 0.5s}
     for part in comment.split(|c: char| c.is_whitespace() || c == '{' || c == '}') {
@@ -26,7 +29,7 @@ pub fn parse_eval_cp(comment: &str) -> Option<i16> {
                 .collect::<String>()
                 .parse::<i32>()
             {
-                return Some(32000 as i16 * sign);
+                return Ok(Some(32000 as i16 * sign));
             }
         } else {
             let num = p.split('/').next().unwrap_or(p);
@@ -44,13 +47,14 @@ pub fn parse_eval_cp(comment: &str) -> Option<i16> {
                         continue;
                     }
                     if let Ok(f) = cleaned.parse::<f32>() {
-                        return Some((f * 100.0).round() as i16);
+                        return Ok(Some((f * 100.0).round() as i16));
                     }
                 }
             }
         }
     }
-    None
+
+    Err("Unable to parse evaluation")
 }
 
 pub fn convert_move(mv: &Move, color: SfColor) -> SfMove {

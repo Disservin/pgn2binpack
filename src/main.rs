@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use rayon::prelude::*;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -70,7 +70,16 @@ fn main() -> Result<()> {
     println!("Using {} threads", rayon::current_num_threads());
     println!();
 
-    process_pgn_files(input_dir, &cli.output, cli.verbose)?;
+    let t0 = std::time::Instant::now();
+    let files = process_pgn_files(input_dir, &cli.output, cli.verbose)?;
+    println!("Time taken: {:.2?}", t0.elapsed());
+
+    print!("Concatenating thread files...");
+    std::io::stdout().flush()?;
+    let t0 = std::time::Instant::now();
+    concatenate_files(&files, &cli.output)?;
+    println!(" done");
+    println!(" Time taken: {:.2?}", t0.elapsed());
 
     let filesize = std::fs::metadata(&cli.output)?.len();
     println!("\n✓ Binpack created successfully");
@@ -80,7 +89,11 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-pub fn process_pgn_files(pgn_root: PathBuf, output_file: &Path, verbose: bool) -> Result<()> {
+pub fn process_pgn_files(
+    pgn_root: PathBuf,
+    output_file: &Path,
+    verbose: bool,
+) -> Result<Vec<String>> {
     let files = collect_pgn_files(&pgn_root)?;
     let total = files.len();
 
@@ -143,12 +156,7 @@ pub fn process_pgn_files(pgn_root: PathBuf, output_file: &Path, verbose: bool) -
         println!("⚠ Processed with {} errors", error_count);
     }
 
-    print!("Concatenating thread files...");
-    std::io::stdout().flush()?;
-    concatenate_files(&thread_files, output_file)?;
-    println!(" done");
-
-    Ok(())
+    Ok(thread_files)
 }
 
 fn concatenate_files(thread_files: &[String], output_file: &Path) -> Result<()> {
@@ -160,9 +168,7 @@ fn concatenate_files(thread_files: &[String], output_file: &Path) -> Result<()> 
 
     for thread_file in thread_files {
         let mut input = File::open(thread_file)?;
-        let mut buffer = Vec::new();
-        input.read_to_end(&mut buffer)?;
-        output.write_all(&buffer)?;
+        std::io::copy(&mut input, &mut output)?;
         // remove the thread file after concatenation frees up space
         std::fs::remove_file(thread_file).ok();
     }
