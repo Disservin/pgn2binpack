@@ -1,0 +1,1 @@
+// This file contains utility functions that can be used throughout the project.

@@ -1,0 +1,6 @@
+pgns
+.mypy_cache
+*.binpack
+*.pgn
+test
+target
