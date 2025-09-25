@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.100"
+clap = { version = "4.5.48", features = ["derive"] }
 flate2 = "1.1.2"
 human_bytes = "0.4.3"
 pgn-reader = "0.28.0"
-sfbinpack = "0.4.3"
+rayon = "1.11.0"
+sfbinpack = "0.5.0"
 shakmaty = "0.29.3"
 walkdir = "2.5.0"

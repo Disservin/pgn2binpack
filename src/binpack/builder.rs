@@ -20,6 +20,8 @@ use pgn_reader::{RawComment, RawTag, Reader, SanPlus, Skip, Visitor};
 use crate::util::util;
 use crate::wdl::wdl;
 
+const STARTPOS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
 pub struct BinpackBuilder {
     input: PathBuf,
     output: PathBuf,
@@ -38,26 +40,11 @@ impl BinpackBuilder {
             CompressedTrainingDataEntryWriter::new(self.output.to_str().unwrap(), true)
                 .context("creating binpack writer")?;
 
-        let filesize = std::fs::metadata(&self.input)
-            .with_context(|| format!("getting metadata for {:?}", self.input))?
-            .len();
-
-        println!(
-            "Processing {:?} - {}",
-            self.input,
-            human_bytes::human_bytes(filesize as f64)
-        );
-
-        let t0 = std::time::Instant::now();
-
         if self.input.extension().and_then(|s| s.to_str()) == Some("gz") {
             self.process_gz_pgn(&self.input, &mut writer)?;
         } else {
             self.process_pgn(&self.input, &mut writer)?;
         }
-
-        let elapsed = t0.elapsed();
-        println!("  done in {:.2?}", elapsed);
 
         Ok(())
     }
@@ -75,7 +62,9 @@ impl BinpackBuilder {
         let mut visitor = TrainingVisitor::new(writer);
 
         for res in reader.read_games(&mut visitor) {
-            res.with_context(|| format!("reading game in {:?}", path))?;
+            if let Err(e) = res.with_context(|| format!("reading game in {:?}", path)) {
+                return Err(e);
+            }
         }
 
         Ok(())
@@ -93,7 +82,9 @@ impl BinpackBuilder {
         let mut visitor = TrainingVisitor::new(writer);
 
         for res in reader.read_games(&mut visitor) {
-            res.with_context(|| format!("reading game in {:?}", path))?;
+            if let Err(e) = res.with_context(|| format!("reading game in {:?}", path)) {
+                return Err(e);
+            }
         }
 
         Ok(())
@@ -120,9 +111,7 @@ impl<'a> TrainingVisitor<'a> {
             start_fen: None,
             result: 0,
             chess: Chess::default(),
-            sf_pos: SfPosition::from_fen(
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            ),
+            sf_pos: SfPosition::from_fen(STARTPOS).unwrap(),
             ply: 0,
             pending_entry: None,
             pending_score_set: false,
@@ -133,25 +122,31 @@ impl<'a> TrainingVisitor<'a> {
         self.start_fen = None;
         self.result = 0;
         self.chess = Chess::default();
-        self.sf_pos =
-            SfPosition::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        self.sf_pos = SfPosition::from_fen(STARTPOS).unwrap();
+
         self.ply = 0;
         self.pending_entry = None;
         self.pending_score_set = false;
     }
 
-    fn apply_start_fen(&mut self) {
+    fn apply_start_fen(&mut self) -> Result<()> {
         if let Some(fen) = &self.start_fen {
             if let Ok(f) = shakmaty::fen::Fen::from_ascii(fen.as_bytes()) {
                 if let Ok(pos) = f.into_position(shakmaty::CastlingMode::Standard) {
                     self.chess = pos;
-                    self.sf_pos = SfPosition::from_fen(fen);
-                    return;
+
+                    match SfPosition::from_fen(fen) {
+                        Ok(p) => self.sf_pos = p,
+                        Err(e) => Err(anyhow::anyhow!("SF position from fen error: {:?}", e))?,
+                    }
+
+                    return Ok(());
                 }
             }
         }
         self.chess = Chess::default();
-        self.sf_pos = SfPosition::from_fen("startpos");
+        self.sf_pos = SfPosition::from_fen(STARTPOS).unwrap();
+        Ok(())
     }
 
     fn flush_pending(&mut self) -> Result<()> {
@@ -200,7 +195,12 @@ impl<'a> TrainingVisitor<'a> {
         self.chess.play_unchecked(mv);
         let fen_after =
             shakmaty::fen::Fen::from_position(&self.chess.clone(), EnPassantMode::Legal);
-        self.sf_pos = SfPosition::from_fen(&fen_after.to_string());
+
+        match SfPosition::from_fen(&fen_after.to_string()) {
+            Ok(p) => self.sf_pos = p,
+            Err(e) => Err(anyhow::anyhow!("SF position from fen error: {:?}", e))?,
+        }
+
         self.ply += 1;
         Ok(())
     }
@@ -219,7 +219,7 @@ impl<'a> TrainingVisitor<'a> {
 impl<'a> Visitor for TrainingVisitor<'a> {
     type Tags = ();
     type Movetext = ();
-    type Output = ();
+    type Output = Result<(), anyhow::Error>;
 
     fn begin_tags(&mut self) -> ControlFlow<Self::Output, Self::Tags> {
         self.reset_game();
@@ -240,7 +240,11 @@ impl<'a> Visitor for TrainingVisitor<'a> {
                         "1-0" => 1,
                         "0-1" => -1,
                         "1/2-1/2" | "*" => 0,
-                        _ => 0,
+                        _ => {
+                            return ControlFlow::Break(Err(anyhow::anyhow!(
+                                "Invalid result format"
+                            )))
+                        }
                     }
                 }
                 _ => {}
@@ -250,7 +254,10 @@ impl<'a> Visitor for TrainingVisitor<'a> {
     }
 
     fn begin_movetext(&mut self, _tags: Self::Tags) -> ControlFlow<Self::Output, Self::Movetext> {
-        self.apply_start_fen();
+        if let Err(e) = self.apply_start_fen() {
+            return ControlFlow::Break(Err(anyhow::anyhow!("applying start FEN failed: {:?}", e)));
+        }
+
         ControlFlow::Continue(())
     }
 
@@ -263,10 +270,19 @@ impl<'a> Visitor for TrainingVisitor<'a> {
         match san_plus.san.to_move(&self.chess) {
             Ok(mv) => {
                 if let Err(e) = self.handle_move(mv) {
-                    eprintln!("move handling error: {e}");
+                    return ControlFlow::Break(Err(anyhow::anyhow!(
+                        "handling move failed: {:?}",
+                        e
+                    )));
                 }
             }
-            Err(_) => { /* skip invalid */ }
+            Err(e) => {
+                // Invalid move in current position: skip rest of game.
+                return ControlFlow::Break(Err(anyhow::anyhow!(
+                    "parsing SAN to move failed: {:?}",
+                    e
+                )));
+            }
         }
         ControlFlow::Continue(())
     }
@@ -286,13 +302,13 @@ impl<'a> Visitor for TrainingVisitor<'a> {
         &mut self,
         _movetext: &mut Self::Movetext,
     ) -> ControlFlow<Self::Output, Skip> {
-        // Ignore side variations: only take mainline.
-        ControlFlow::Continue(Skip(true))
+        ControlFlow::Continue(Skip(true)) // stay in the mainline
     }
 
     fn end_game(&mut self, _movetext: Self::Movetext) -> Self::Output {
         if let Err(e) = self.flush_pending() {
-            eprintln!("flush error: {e}");
+            return Err(e);
         }
+        Ok(())
     }
 }
