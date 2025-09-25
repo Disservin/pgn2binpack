@@ -4,3 +4,4 @@ pgns
 *.pgn
 test
 target
+*binpack.thread*
