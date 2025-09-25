@@ -7,86 +7,59 @@ use std::{
 
 use anyhow::{Context, Result};
 use flate2::read::MultiGzDecoder;
-use walkdir::WalkDir;
 
 use sfbinpack::{
-    chess::{
-        color::Color as SfColor,
-        coords::Square as SfSquare,
-        piece::Piece as SfPiece,
-        piecetype::PieceType as SfPieceType,
-        position::Position as SfPosition,
-        r#move::{Move as SfMove, MoveType as SfMoveType},
-    },
+    chess::{color::Color as SfColor, position::Position as SfPosition},
     CompressedTrainingDataEntryWriter, TrainingDataEntry,
 };
 
-use shakmaty::{Chess, EnPassantMode, Move, Position, Role, Square};
+use shakmaty::{Chess, EnPassantMode, Move, Position};
 
 use pgn_reader::{RawComment, RawTag, Reader, SanPlus, Skip, Visitor};
 
+use crate::util::util;
 use crate::wdl::wdl;
 
 pub struct BinpackBuilder {
-    root: PathBuf,
+    input: PathBuf,
     output: PathBuf,
 }
 
 impl BinpackBuilder {
-    pub fn new<P: Into<PathBuf>, Q: Into<PathBuf>>(pgn_root: P, output_binpack: Q) -> Self {
+    pub fn new<P: Into<PathBuf>, Q: Into<PathBuf>>(input_pgn: P, output_binpack: Q) -> Self {
         Self {
-            root: pgn_root.into(),
+            input: input_pgn.into(),
             output: output_binpack.into(),
         }
     }
 
     pub fn create_binpack(&self) -> Result<()> {
         let mut writer =
-            CompressedTrainingDataEntryWriter::new(self.output.to_str().unwrap(), false)
+            CompressedTrainingDataEntryWriter::new(self.output.to_str().unwrap(), true)
                 .context("creating binpack writer")?;
 
-        let files = self.collect_pgn_gz_files()?;
-        let total = files.len();
-        for (i, gz_file) in files.iter().enumerate() {
-            let filesize = std::fs::metadata(gz_file)
-                .with_context(|| format!("getting metadata for {:?}", gz_file))?
-                .len();
-            println!(
-                "Processing {:?} ({}/{}) - {}",
-                gz_file,
-                i + 1,
-                total,
-                human_bytes::human_bytes(filesize as f64)
-            );
-            let t0 = std::time::Instant::now();
-            self.process_gz_pgn(&gz_file, &mut writer)
-                .with_context(|| format!("processing file {:?}", gz_file))?;
-            let elapsed = t0.elapsed();
-            println!("  done in {:.2?}", elapsed);
-        }
-        Ok(())
-    }
+        let filesize = std::fs::metadata(&self.input)
+            .with_context(|| format!("getting metadata for {:?}", self.input))?
+            .len();
 
-    fn collect_pgn_gz_files(&self) -> Result<Vec<PathBuf>> {
-        let mut out = Vec::new();
-        for entry in WalkDir::new(&self.root).into_iter().filter_map(|e| e.ok()) {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let p = entry.path();
-            if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                if ext.eq_ignore_ascii_case("gz") {
-                    if let Some(stem_ext) = p.file_stem().and_then(|s| s.to_str()) {
-                        if stem_ext.ends_with(".pgn")
-                            || stem_ext.to_ascii_lowercase().contains("pgn")
-                        {
-                            out.push(p.to_path_buf());
-                        }
-                    }
-                }
-            }
+        println!(
+            "Processing {:?} - {}",
+            self.input,
+            human_bytes::human_bytes(filesize as f64)
+        );
+
+        let t0 = std::time::Instant::now();
+
+        if self.input.extension().and_then(|s| s.to_str()) == Some("gz") {
+            self.process_gz_pgn(&self.input, &mut writer)?;
+        } else {
+            self.process_pgn(&self.input, &mut writer)?;
         }
-        Ok(out)
+
+        let elapsed = t0.elapsed();
+        println!("  done in {:.2?}", elapsed);
+
+        Ok(())
     }
 
     fn process_gz_pgn(
@@ -98,14 +71,28 @@ impl BinpackBuilder {
         let decoder = MultiGzDecoder::new(file);
         let buf_reader = BufReader::new(decoder);
 
-        // pgn_reader::Reader works on any BufRead
         let mut reader = Reader::new(buf_reader);
-
         let mut visitor = TrainingVisitor::new(writer);
-        let out = reader.read_games(&mut visitor);
 
-        // iterate oer all games
-        for res in out {
+        for res in reader.read_games(&mut visitor) {
+            res.with_context(|| format!("reading game in {:?}", path))?;
+        }
+
+        Ok(())
+    }
+
+    fn process_pgn(
+        &self,
+        path: &Path,
+        writer: &mut CompressedTrainingDataEntryWriter,
+    ) -> Result<()> {
+        let file = File::open(path).with_context(|| format!("open {:?}", path))?;
+        let buf_reader = BufReader::new(file);
+
+        let mut reader = Reader::new(buf_reader);
+        let mut visitor = TrainingVisitor::new(writer);
+
+        for res in reader.read_games(&mut visitor) {
             res.with_context(|| format!("reading game in {:?}", path))?;
         }
 
@@ -181,7 +168,7 @@ impl<'a> TrainingVisitor<'a> {
         // Flush previous if it never received a comment with eval.
         self.flush_pending()?;
 
-        let sf_mv = convert_move(&mv, self.sf_pos.side_to_move());
+        let sf_mv = util::convert_move(&mv, self.sf_pos.side_to_move());
 
         // if white stm and white won, result = 1
         // if black stm and black won, result = 1
@@ -219,7 +206,7 @@ impl<'a> TrainingVisitor<'a> {
     }
 
     fn attach_comment_eval(&mut self, comment: &str) {
-        if let Some(cp) = parse_eval_cp(comment) {
+        if let Some(cp) = util::parse_eval_cp(comment) {
             let internal = wdl::external_cp_to_internal(cp as i32, &self.chess);
             if let Some(entry) = self.pending_entry.as_mut() {
                 entry.score = internal;
@@ -308,90 +295,4 @@ impl<'a> Visitor for TrainingVisitor<'a> {
             eprintln!("flush error: {e}");
         }
     }
-}
-
-// --------------- Parsing helpers ------------------
-
-fn parse_eval_cp(comment: &str) -> Option<i16> {
-    // Matches examples like:
-    // {+1.01/26 1.2s} {-0.34/15} {+0.00} {-M21/32 0.5s} {+M21/32 0.5s}
-    for part in comment.split(|c: char| c.is_whitespace() || c == '{' || c == '}') {
-        if part.is_empty() {
-            continue;
-        }
-        let p = part.trim_matches(|c| c == '{' || c == '}');
-
-        // mate
-        if p.starts_with("+M") || p.starts_with("-M") {
-            let sign = if p.starts_with("+M") { 1 } else { -1 };
-            if let Ok(_) = p[2..]
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect::<String>()
-                .parse::<i32>()
-            {
-                return Some(32000 as i16 * sign);
-            }
-        } else {
-            let num = p.split('/').next().unwrap_or(p);
-            if let Some(first) = num.chars().next() {
-                if first == '+' || first == '-' || first.is_ascii_digit() {
-                    let mut cleaned = String::new();
-                    for ch in num.chars() {
-                        if ch.is_ascii_digit() || ch == '+' || ch == '-' || ch == '.' {
-                            cleaned.push(ch);
-                        } else {
-                            break;
-                        }
-                    }
-                    if cleaned == "+" || cleaned == "-" {
-                        continue;
-                    }
-                    if let Ok(f) = cleaned.parse::<f32>() {
-                        return Some((f * 100.0).round() as i16);
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-// --------------- Move conversion helpers ------------------
-
-fn convert_move(mv: &Move, color: SfColor) -> SfMove {
-    let from_idx = square_index(mv.from().unwrap());
-    let to_idx = square_index(mv.to());
-
-    let mut move_type = SfMoveType::Normal;
-    let mut promo_piece = SfPiece::none();
-
-    if mv.is_en_passant() {
-        move_type = SfMoveType::EnPassant;
-    } else if mv.is_castle() {
-        move_type = SfMoveType::Castle;
-    } else if let Some(promo) = mv.promotion() {
-        move_type = SfMoveType::Promotion;
-        promo_piece = match promo {
-            Role::Queen => SfPiece::new(SfPieceType::Queen, color),
-            Role::Rook => SfPiece::new(SfPieceType::Rook, color),
-            Role::Bishop => SfPiece::new(SfPieceType::Bishop, color),
-            Role::Knight => SfPiece::new(SfPieceType::Knight, color),
-            Role::King | Role::Pawn => SfPiece::none(),
-        };
-    }
-
-    SfMove::new(
-        SfSquare::new(from_idx as u32),
-        SfSquare::new(to_idx as u32),
-        move_type,
-        promo_piece,
-    )
-}
-
-// a1 = 0 indexing
-fn square_index(sq: Square) -> u32 {
-    let file = sq.file().char() as u32 - 'a' as u32;
-    let rank = sq.rank().char() as u32 - '1' as u32;
-    rank * 8 + file
 }

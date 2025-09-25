@@ -1,9 +1,61 @@
-use std::env;
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
+
+use anyhow::Result;
+use walkdir::WalkDir;
+
+use crate::binpack::BinpackBuilder;
 
 mod binpack;
 mod errors;
 mod util;
 mod wdl;
+
+pub fn process_pgn_files<P: Into<PathBuf>, Q: Into<PathBuf>>(
+    pgn_root: P,
+    output_file: Q,
+) -> Result<()> {
+    let root = pgn_root.into();
+    let output_file = output_file.into();
+
+    let files = collect_pgn_files(&root)?;
+    let total = files.len();
+
+    for (i, pgn_file) in files.iter().enumerate() {
+        println!("Processing file {}/{}: {:?}", i + 1, total, pgn_file);
+
+        let builder = BinpackBuilder::new(&pgn_file, &output_file);
+
+        if let Err(e) = builder.create_binpack() {
+            println!("  Failed to create binpack: {:?}", e);
+            return Err(e);
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_pgn_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+
+    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let p = entry.path();
+        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+
+        // Match .pgn or .pgn.gz files
+        if name.ends_with(".pgn") || name.ends_with(".pgn.gz") {
+            out.push(p.to_path_buf());
+        }
+    }
+
+    Ok(out)
+}
 
 fn main() {
     let search_dir = env::args().nth(1).unwrap_or_else(|| {
@@ -19,10 +71,7 @@ fn main() {
         std::fs::remove_file(output_path).expect("Failed to delete existing output.binpack");
     }
 
-    let binpack_builder = binpack::BinpackBuilder::new(search_dir, "output.binpack");
-    binpack_builder
-        .create_binpack()
-        .expect("Failed to create binpack");
+    process_pgn_files(&search_dir, "output.binpack").expect("Failed to process PGN files");
 
     println!("Binpack created successfully.");
 
