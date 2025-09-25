@@ -2,6 +2,7 @@ pgns
 .mypy_cache
 *.binpack
 *.pgn
+*.pgn.gz
 test
 target
 *binpack.thread*

@@ -6,12 +6,17 @@ use sfbinpack::chess::{
     r#move::{Move as SfMove, MoveType as SfMoveType},
 };
 
-use shakmaty::{Move, Role, Square};
+use shakmaty::{Move, Role};
 
 pub fn parse_eval_cp(comment: &str) -> Result<Option<i16>, &'static str> {
-    if (comment == "book") || (comment == "Book") || (comment == "No result") {
+    if (comment == "book") || (comment == "Book") {
+        return Ok(Some(0));
+    }
+
+    if comment == "No result" {
         return Ok(None);
     }
+
     // Matches examples like:
     // {+1.01/26 1.2s} {-0.34/15} {+0.00} {-M21/32 0.5s} {+M21/32 0.5s}
     for part in comment.split(|c: char| c.is_whitespace() || c == '{' || c == '}') {
@@ -58,9 +63,6 @@ pub fn parse_eval_cp(comment: &str) -> Result<Option<i16>, &'static str> {
 }
 
 pub fn convert_move(mv: &Move, color: SfColor) -> SfMove {
-    let from_idx = square_index(mv.from().unwrap());
-    let to_idx = square_index(mv.to());
-
     let mut move_type = SfMoveType::Normal;
     let mut promo_piece = SfPiece::none();
 
@@ -68,28 +70,21 @@ pub fn convert_move(mv: &Move, color: SfColor) -> SfMove {
         move_type = SfMoveType::EnPassant;
     } else if mv.is_castle() {
         move_type = SfMoveType::Castle;
-    } else if let Some(promo) = mv.promotion() {
+    } else if mv.is_promotion() {
         move_type = SfMoveType::Promotion;
-        promo_piece = match promo {
-            Role::Queen => SfPiece::new(SfPieceType::Queen, color),
-            Role::Rook => SfPiece::new(SfPieceType::Rook, color),
-            Role::Bishop => SfPiece::new(SfPieceType::Bishop, color),
-            Role::Knight => SfPiece::new(SfPieceType::Knight, color),
-            Role::King | Role::Pawn => SfPiece::none(),
+        promo_piece = match mv.promotion() {
+            Some(Role::Queen) => SfPiece::new(SfPieceType::Queen, color),
+            Some(Role::Rook) => SfPiece::new(SfPieceType::Rook, color),
+            Some(Role::Bishop) => SfPiece::new(SfPieceType::Bishop, color),
+            Some(Role::Knight) => SfPiece::new(SfPieceType::Knight, color),
+            _ => panic!("Invalid promotion piece"),
         };
     }
 
     SfMove::new(
-        SfSquare::new(from_idx as u32),
-        SfSquare::new(to_idx as u32),
+        SfSquare::new(mv.from().unwrap().to_u32()),
+        SfSquare::new(mv.to().to_u32()),
         move_type,
         promo_piece,
     )
-}
-
-// a1 = 0 indexing
-fn square_index(sq: Square) -> u32 {
-    let file = sq.file().char() as u32 - 'a' as u32;
-    let rank = sq.rank().char() as u32 - '1' as u32;
-    rank * 8 + file
 }

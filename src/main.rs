@@ -114,19 +114,21 @@ pub fn process_pgn_files(
 
             let builder = BinpackBuilder::new(&pgn_file, &thread_output);
 
-            let result = match builder.create_binpack() {
-                Ok(_) => {
-                    if verbose {
-                        eprintln!("\n✓ Processed: {:?}", pgn_file.file_name().unwrap());
-                    }
-                    Ok(thread_output)
-                }
-                Err(e) => {
-                    errors.fetch_add(1, Ordering::SeqCst);
-                    eprintln!("\n✗ Failed: {:?} - {}", pgn_file.file_name().unwrap(), e);
-                    Err(e)
-                }
-            };
+            // let result = match builder.create_binpack() {
+            //     Ok(_) => {
+            //         if verbose {
+            //             eprintln!("\n✓ Processed: {:?}", pgn_file.file_name().unwrap());
+            //         }
+            //         Ok(thread_output)
+            //     }
+            //     Err(e) => {
+            //         errors.fetch_add(1, Ordering::SeqCst);
+            //         eprintln!("\n✗ Failed: {:?} - {}", pgn_file.file_name().unwrap(), e);
+            //         Err(e)
+            //     }
+            // };
+
+            builder.create_binpack();
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
             let err_count = errors.load(Ordering::SeqCst);
@@ -138,14 +140,15 @@ pub fn process_pgn_files(
             }
             std::io::stdout().flush().unwrap();
 
-            result
+            thread_output
         })
         .collect();
 
     println!();
 
     // Filter out errors but continue with successful files
-    let thread_files: Vec<String> = results.into_iter().filter_map(|r| r.ok()).collect();
+    // let thread_files: Vec<String> = results.into_iter().filter_map(|r| r.ok()).collect();
+    let thread_files: Vec<String> = results;
 
     if thread_files.is_empty() {
         anyhow::bail!("All files failed to process");

@@ -5,7 +5,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
 use flate2::read::MultiGzDecoder;
 
 use sfbinpack::{
@@ -33,61 +32,49 @@ impl BinpackBuilder {
         }
     }
 
-    pub fn create_binpack(&self) -> Result<()> {
+    pub fn create_binpack(&self) {
         let mut writer =
             CompressedTrainingDataEntryWriter::new(self.output.to_str().unwrap(), true)
-                .context("creating binpack writer")?;
+                .expect("creating binpack writer");
 
         if self.input.extension().and_then(|s| s.to_str()) == Some("gz") {
-            self.process_gz_pgn(&self.input, &mut writer)?;
+            self.process_gz_pgn(&self.input, &mut writer);
         } else {
-            self.process_pgn(&self.input, &mut writer)?;
+            self.process_pgn(&self.input, &mut writer);
         }
-
-        Ok(())
     }
 
-    fn process_gz_pgn(
-        &self,
-        path: &Path,
-        writer: &mut CompressedTrainingDataEntryWriter,
-    ) -> Result<()> {
-        let file = File::open(path).with_context(|| format!("open {:?}", path))?;
+    fn process_gz_pgn(&self, path: &Path, writer: &mut CompressedTrainingDataEntryWriter) {
+        let file = File::open(path).expect(&format!("open {:?}", path));
         let decoder = MultiGzDecoder::new(file);
         let buf_reader = BufReader::new(decoder);
 
         let mut reader = Reader::new(buf_reader);
-        let mut visitor = TrainingVisitor::new(writer);
+        let mut visitor = TrainingVisitor::new(writer, self.input.clone());
 
         for res in reader.read_games(&mut visitor) {
             match res {
-                Ok(Ok(())) => {}                // Success
-                Ok(Err(e)) => return Err(e),    // Game processing error
-                Err(e) => return Err(e.into()), // Reader error
+                // Ok(Ok(())) => {}                   // Success
+                // Ok(Err(e)) => panic!("{:?}", e),   // Game processing error
+                // Err(e) => panic!("{:?}", e),       // Reader error
+                Err(e) => panic!("{:?}", e), // Reader error
+                Ok(()) => {}                 // Success
             }
         }
-
-        Ok(())
     }
 
-    fn process_pgn(
-        &self,
-        path: &Path,
-        writer: &mut CompressedTrainingDataEntryWriter,
-    ) -> Result<()> {
-        let file = File::open(path).with_context(|| format!("open {:?}", path))?;
+    fn process_pgn(&self, path: &Path, writer: &mut CompressedTrainingDataEntryWriter) {
+        let file = File::open(path).expect(&format!("open {:?}", path));
         let buf_reader = BufReader::new(file);
 
         let mut reader = Reader::new(buf_reader);
-        let mut visitor = TrainingVisitor::new(writer);
+        let mut visitor = TrainingVisitor::new(writer, self.input.clone());
 
         for res in reader.read_games(&mut visitor) {
             if let Err(e) = res {
-                return Err(e.into());
+                panic!("{:?}", e);
             }
         }
-
-        Ok(())
     }
 }
 
@@ -101,10 +88,12 @@ struct TrainingVisitor<'a> {
     ply: u16,
     pending_entry: Option<TrainingDataEntry>,
     pending_score_set: bool,
+    input: PathBuf,
+    game_end_time: Option<String>,
 }
 
 impl<'a> TrainingVisitor<'a> {
-    fn new(writer: &'a mut CompressedTrainingDataEntryWriter) -> Self {
+    fn new(writer: &'a mut CompressedTrainingDataEntryWriter, input: PathBuf) -> Self {
         Self {
             writer,
             start_fen: None,
@@ -113,6 +102,8 @@ impl<'a> TrainingVisitor<'a> {
             ply: 0,
             pending_entry: None,
             pending_score_set: false,
+            input,
+            game_end_time: None,
         }
     }
 
@@ -126,41 +117,54 @@ impl<'a> TrainingVisitor<'a> {
         self.pending_score_set = false;
     }
 
-    fn apply_start_fen(&mut self) -> Result<()> {
+    fn apply_start_fen(&mut self) {
         if let Some(fen) = &self.start_fen {
             let f = shakmaty::fen::Fen::from_ascii(fen.as_bytes())
-                .map_err(|e| anyhow::anyhow!("Invalid FEN format: {}", e))?;
+                .expect(&format!("Invalid FEN format: {}", fen));
 
             let pos = f
                 .into_position(shakmaty::CastlingMode::Standard)
-                .map_err(|e| anyhow::anyhow!("Invalid chess position: {}", e))?;
+                .expect("Invalid chess position");
 
             self.chess = pos;
         } else {
             self.chess = Chess::default();
         }
-
-        Ok(())
     }
 
-    fn flush_pending(&mut self) -> Result<()> {
+    fn flush_pending(&mut self) {
         if let Some(entry) = self.pending_entry.take() {
             self.writer
                 .write_entry(&entry)
-                .context("write pending entry")?;
+                .expect("write pending entry");
+        } else if self.pending_score_set {
+            panic!("Pending score set but no pending entry");
+        } else {
+            panic!("No pending entry to flush");
         }
+
         self.pending_score_set = false;
-        Ok(())
     }
 
-    fn handle_move(&mut self, mv: Move) -> Result<()> {
+    fn handle_move(&mut self, mv: Move) {
         // Flush previous if it never received a comment with eval.
-        self.flush_pending()?;
+        // assert!(self.pending_entry.is_none());
+
+        if !self.pending_entry.is_none() {
+            println!(
+                "Warning: pending entry without eval, input: {:?}",
+                self.input.as_path()
+            );
+            println!("entry {:?}", self.pending_entry.as_ref().unwrap());
+            println!("move {}", mv.to_uci(shakmaty::CastlingMode::Standard));
+            println!("GameEndTime {:?}", self.game_end_time.as_ref().unwrap());
+            panic!("Pending entry without eval");
+        }
 
         let fen = Fen::from_position(&self.chess.clone(), EnPassantMode::Legal);
         // keep track of position and play move instead
         let sfpos = SfPosition::from_fen(&fen.to_string())
-            .map_err(|e| anyhow::anyhow!("SF position from fen error: {:?}", e))?;
+            .expect(&format!("SF position from fen error: {}", fen));
 
         let sf_mv = util::convert_move(&mv, sfpos.side_to_move());
 
@@ -190,19 +194,13 @@ impl<'a> TrainingVisitor<'a> {
         self.chess.play_unchecked(mv);
 
         self.ply += 1;
-        Ok(())
     }
 
-    fn attach_comment_eval(&mut self, comment: &str) -> Result<()> {
+    fn attach_comment_eval(&mut self, comment: &str) {
         let cp = match util::parse_eval_cp(comment) {
             Ok(Some(v)) => v,
-            Ok(None) => return Ok(()), // known non-eval comment
-            Err(_) => {
-                return Err(anyhow::anyhow!(
-                    "Failed to parse evaluation from comment: {}",
-                    comment
-                ))
-            }
+            Ok(None) => return, // known non-eval comment
+            Err(_) => panic!("Failed to parse evaluation from comment: {}", comment),
         };
 
         let internal = wdl::external_cp_to_internal(cp as i32, &self.chess);
@@ -210,19 +208,19 @@ impl<'a> TrainingVisitor<'a> {
         let entry = self
             .pending_entry
             .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("No pending entry available"))?;
+            .expect("No pending entry available");
 
         entry.score = internal;
         self.pending_score_set = true;
 
-        Ok(())
+        self.flush_pending();
     }
 }
 
 impl<'a> Visitor for TrainingVisitor<'a> {
     type Tags = ();
     type Movetext = ();
-    type Output = Result<(), anyhow::Error>;
+    type Output = ();
 
     fn begin_tags(&mut self) -> ControlFlow<Self::Output, Self::Tags> {
         self.reset_game();
@@ -243,12 +241,16 @@ impl<'a> Visitor for TrainingVisitor<'a> {
                         "1-0" => 1,
                         "0-1" => -1,
                         "1/2-1/2" | "*" => 0,
-                        _ => {
-                            return ControlFlow::Break(Err(anyhow::anyhow!(
-                                "Invalid result format"
-                            )))
-                        }
+                        _ => panic!("Invalid result format: {}", v),
                     }
+                }
+                "Variant" => {
+                    // panic for now later skip
+                    panic!("Variant tag not supported");
+                }
+                "GameEndTime" => {
+                    self.game_end_time = Some(v.to_string());
+                    // ignore
                 }
                 _ => {}
             }
@@ -258,10 +260,7 @@ impl<'a> Visitor for TrainingVisitor<'a> {
     }
 
     fn begin_movetext(&mut self, _tags: Self::Tags) -> ControlFlow<Self::Output, Self::Movetext> {
-        if let Err(e) = self.apply_start_fen() {
-            return ControlFlow::Break(Err(anyhow::anyhow!("applying start FEN failed: {:?}", e)));
-        }
-
+        self.apply_start_fen();
         ControlFlow::Continue(())
     }
 
@@ -273,21 +272,16 @@ impl<'a> Visitor for TrainingVisitor<'a> {
         // SanPlus has .san giving the SAN which we convert using current position.
         match san_plus.san.to_move(&self.chess) {
             Ok(mv) => {
-                if let Err(e) = self.handle_move(mv) {
-                    return ControlFlow::Break(Err(anyhow::anyhow!(
-                        "handling move failed: {:?}",
-                        e
-                    )));
-                }
+                self.handle_move(mv);
             }
             Err(e) => {
                 // Invalid move in current position: skip rest of game.
-                return ControlFlow::Break(Err(anyhow::anyhow!(
+                panic!(
                     "parsing SAN to move failed: {:?}, san: {:?}, fen: {:?}",
                     e,
                     san_plus.san,
                     Fen::from_position(&self.chess, EnPassantMode::Legal).to_string()
-                )));
+                );
             }
         }
         ControlFlow::Continue(())
@@ -299,9 +293,9 @@ impl<'a> Visitor for TrainingVisitor<'a> {
         comment: RawComment<'_>,
     ) -> ControlFlow<Self::Output> {
         if let Ok(c) = std::str::from_utf8(comment.0) {
-            if let Err(e) = self.attach_comment_eval(c) {
-                return ControlFlow::Break(Err(anyhow::anyhow!(e)));
-            }
+            self.attach_comment_eval(c);
+        } else {
+            panic!("Invalid UTF-8 in comment");
         }
         ControlFlow::Continue(())
     }
@@ -314,9 +308,6 @@ impl<'a> Visitor for TrainingVisitor<'a> {
     }
 
     fn end_game(&mut self, _movetext: Self::Movetext) -> Self::Output {
-        if let Err(e) = self.flush_pending() {
-            return Err(e);
-        }
-        Ok(())
+        // self.flush_pending();
     }
 }
