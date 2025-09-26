@@ -352,7 +352,7 @@ dependencies = [
 [[package]]
 name = "sfbinpack"
 version = "0.5.1"
-source = "git+https://github.com/Disservin/binpack-rust.git?rev=e1459493669646e61cfa2c9b20a2dc811c5f3a8a#e1459493669646e61cfa2c9b20a2dc811c5f3a8a"
+source = "git+https://github.com/Disservin/binpack-rust.git?rev=7ddb18229602f4bd7510bd998a230bc742bcf387#7ddb18229602f4bd7510bd998a230bc742bcf387"
 dependencies = [
  "thiserror",
 ]

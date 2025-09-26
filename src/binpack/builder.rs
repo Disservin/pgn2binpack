@@ -1,8 +1,8 @@
 use std::{
     fs::File,
-    io::BufReader,
+    io::{BufReader, Read, Seek, Write},
     ops::ControlFlow,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use flate2::read::MultiGzDecoder;
@@ -19,69 +19,68 @@ use pgn_reader::{RawComment, RawTag, Reader, SanPlus, Skip, Visitor};
 use crate::util::util;
 use crate::wdl::wdl;
 
-pub struct BinpackBuilder {
+pub struct BinpackBuilder<T: Write + Read + Seek> {
     input: PathBuf,
-    output: PathBuf,
+    output: T,
 }
 
-impl BinpackBuilder {
-    pub fn new<P: Into<PathBuf>, Q: Into<PathBuf>>(input_pgn: P, output_binpack: Q) -> Self {
+impl<T: Write + Read + Seek> BinpackBuilder<T> {
+    pub fn new<P: Into<PathBuf>>(input_pgn: P, output_file: T) -> Self {
         Self {
             input: input_pgn.into(),
-            output: output_binpack.into(),
+            output: output_file,
         }
     }
 
-    pub fn create_binpack(&self) {
-        let mut writer =
-            CompressedTrainingDataEntryWriter::new(self.output.to_str().unwrap(), true)
-                .expect("creating binpack writer");
-
+    pub fn create_binpack(&mut self) {
         if self.input.extension().and_then(|s| s.to_str()) == Some("gz") {
-            self.process_gz_pgn(&self.input, &mut writer);
+            self.process_gz_pgn();
         } else {
-            self.process_pgn(&self.input, &mut writer);
+            self.process_pgn();
         }
     }
 
-    fn process_gz_pgn(&self, path: &Path, writer: &mut CompressedTrainingDataEntryWriter) {
-        let file = File::open(path).expect(&format!("open {:?}", path));
+    fn process_gz_pgn(&mut self) {
+        let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
+            .expect("creating binpack writer");
+
+        let file = File::open(&self.input).expect(&format!("open {:?}", self.input));
         let decoder = MultiGzDecoder::new(file);
         let buf_reader = BufReader::new(decoder);
-
         let mut reader = Reader::new(buf_reader);
-        let mut visitor = TrainingVisitor::new(writer, self.input.clone());
-
+        let mut visitor = TrainingVisitor::new(&mut writer, self.input.clone());
         for res in reader.read_games(&mut visitor) {
             match res {
-                // Ok(Ok(())) => {}                   // Success
-                // Ok(Err(e)) => panic!("{:?}", e),   // Game processing error
-                // Err(e) => panic!("{:?}", e),       // Reader error
-                Err(e) => panic!("{:?}", e), // Reader error
-                Ok(()) => {}                 // Success
+                Err(e) => panic!("{:?}", e),
+                Ok(()) => {}
             }
         }
     }
 
-    fn process_pgn(&self, path: &Path, writer: &mut CompressedTrainingDataEntryWriter) {
-        let file = File::open(path).expect(&format!("open {:?}", path));
+    fn process_pgn(&mut self) {
+        let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
+            .expect("creating binpack writer");
+
+        let file = File::open(&self.input).expect(&format!("open {:?}", self.input));
         let buf_reader = BufReader::new(file);
-
         let mut reader = Reader::new(buf_reader);
-        let mut visitor = TrainingVisitor::new(writer, self.input.clone());
-
+        let mut visitor = TrainingVisitor::new(&mut writer, self.input.clone());
         for res in reader.read_games(&mut visitor) {
             if let Err(e) = res {
                 panic!("{:?}", e);
             }
         }
     }
+
+    pub fn into_inner(self) -> std::io::Result<T> {
+        Ok(self.output)
+    }
 }
 
 // ---------------- Visitor & parsing logic ----------------
 
-struct TrainingVisitor<'a> {
-    writer: &'a mut CompressedTrainingDataEntryWriter,
+struct TrainingVisitor<'a, T: Write + Read + Seek> {
+    writer: &'a mut CompressedTrainingDataEntryWriter<T>,
     start_fen: Option<String>,
     result: i16,
     chess: Chess,
@@ -93,8 +92,8 @@ struct TrainingVisitor<'a> {
     game_end_time: Option<String>,
 }
 
-impl<'a> TrainingVisitor<'a> {
-    fn new(writer: &'a mut CompressedTrainingDataEntryWriter, input: PathBuf) -> Self {
+impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
+    fn new(writer: &'a mut CompressedTrainingDataEntryWriter<T>, input: PathBuf) -> Self {
         Self {
             writer,
             start_fen: None,
@@ -233,7 +232,7 @@ impl<'a> TrainingVisitor<'a> {
     }
 }
 
-impl<'a> Visitor for TrainingVisitor<'a> {
+impl<'a, T: Write + Read + Seek> Visitor for TrainingVisitor<'a, T> {
     type Tags = ();
     type Movetext = ();
     type Output = ();
