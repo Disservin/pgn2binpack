@@ -22,6 +22,7 @@ pub struct Cli {
     pub force: bool,
 
     /// Use memory for intermediate storage (may use more RAM, but faster)
-    #[arg(short = 'm', long, default_value = "true")]
+    // #[arg(short = 'm', long, default_value = "true")]
+    #[arg(short, long, default_missing_value="true", num_args=0..=1)]
     pub memory: bool,
 }

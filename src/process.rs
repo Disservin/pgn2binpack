@@ -1,18 +1,18 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rayon::prelude::*;
-use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
-use std::io::{Cursor, Write};
+use std::io::{BufWriter, Cursor, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::thread;
+use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 use crate::binpack::BinpackBuilder;
 
-pub fn process_pgn_files(pgn_root: PathBuf, output_file: &Path, use_memory: bool) -> Result<()> {
-    let files = collect_pgn_files(&pgn_root)?;
+pub fn process_pgn_files(pgn_root: &Path, output_file: &Path, use_memory: bool) -> Result<()> {
+    let files = collect_pgn_files(pgn_root)?;
     let total = files.len();
 
     if total == 0 {
@@ -21,13 +21,12 @@ pub fn process_pgn_files(pgn_root: PathBuf, output_file: &Path, use_memory: bool
 
     println!("Found {} PGN files to process", total);
 
-    let completed = Arc::new(AtomicUsize::new(0));
-    let errors = Arc::new(AtomicUsize::new(0));
+    let completed = AtomicUsize::new(0);
 
     if use_memory {
-        process_with_memory(files, output_file, completed, errors)?;
+        process_with_memory(files, output_file, &completed)?;
     } else {
-        let parts = process_with_files(files, output_file, completed, errors)?;
+        let parts = process_with_files(files, output_file, &completed)?;
         concatenate_files(&parts, output_file)?;
     }
     Ok(())
@@ -36,128 +35,94 @@ pub fn process_pgn_files(pgn_root: PathBuf, output_file: &Path, use_memory: bool
 fn process_with_memory(
     files: Vec<PathBuf>,
     output_file: &Path,
-    completed: Arc<AtomicUsize>,
-    errors: Arc<AtomicUsize>,
-) -> Result<Vec<String>> {
+    completed: &AtomicUsize,
+) -> Result<()> {
     let total = files.len();
-    let queue = Arc::new(Mutex::new(VecDeque::<Vec<u8>>::new()));
-    let queue_clone = Arc::clone(&queue);
-    let processing_done = Arc::new(AtomicBool::new(false));
-    let processing_done_clone = Arc::clone(&processing_done);
 
-    let output_path = output_file.to_path_buf();
-    let writer_handle = thread::spawn(move || -> Result<()> {
-        let mut output = File::create(output_path)?;
-        while !processing_done_clone.load(Ordering::SeqCst)
-            || !queue_clone.lock().unwrap().is_empty()
-        {
-            let data = {
-                let mut q = queue_clone.lock().unwrap();
-                q.pop_front()
-            };
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    let out_path = output_file.to_path_buf();
 
-            if let Some(buffer) = data {
-                output.write_all(&buffer)?;
-            } else {
-                thread::sleep(std::time::Duration::from_millis(10));
-            }
+    // writer thread
+    let writer = thread::spawn(move || -> Result<()> {
+        let file = File::create(&out_path)
+            .with_context(|| format!("Failed creating output file {}", out_path.display()))?;
+        let mut out = BufWriter::new(file);
+
+        for buf in rx {
+            out.write_all(&buf)?;
         }
+        out.flush()?;
         Ok(())
     });
 
-    let results: Vec<_> = files
-        .par_iter()
-        .enumerate()
-        .map(|(i, pgn_file)| {
-            let memory_file = Cursor::new(Vec::new());
-            let mut builder = BinpackBuilder::new(&pgn_file, memory_file);
-            builder.create_binpack();
+    // produce buffers in parallel and send to writer
+    files.par_iter().for_each(|pgn_file| {
+        let memory_file = Cursor::new(Vec::new());
+        let mut builder = BinpackBuilder::new(pgn_file, memory_file);
+        builder.create_binpack();
 
-            let buffer = builder.into_inner().unwrap();
-            {
-                let mut q = queue.lock().unwrap();
-                q.push_back(buffer.into_inner());
-            }
+        let buffer = builder.into_inner().unwrap();
+        let _ = tx.send(buffer.into_inner());
 
-            let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-            let err_count = errors.load(Ordering::SeqCst);
+        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+        print_progress(done, total);
+    });
 
-            if err_count > 0 {
-                print!("\rProcessing: {}/{} ({} errors)", done, total, err_count);
-            } else {
-                print!("\rProcessing: {}/{}", done, total);
-            }
-            std::io::stdout().flush().unwrap();
+    // drop the sender to close the channel
+    drop(tx);
 
-            format!("processed_{:04}", i)
-        })
-        .collect();
-
-    processing_done.store(true, Ordering::SeqCst);
-    writer_handle.join().unwrap()?;
+    writer.join().expect("writer thread panicked")?;
 
     println!();
-    let error_count = errors.load(Ordering::SeqCst);
-    if error_count > 0 {
-        println!("⚠ Processed with {} errors", error_count);
-    }
-
-    Ok(results)
+    Ok(())
 }
 
 fn process_with_files(
     files: Vec<PathBuf>,
-    output_file: &Path,
-    completed: Arc<AtomicUsize>,
-    errors: Arc<AtomicUsize>,
-) -> Result<Vec<String>> {
+    _output_file: &Path,
+    completed: &AtomicUsize,
+) -> Result<Vec<PathBuf>> {
     let total = files.len();
 
-    let results: Vec<_> = files
+    let parts: Vec<PathBuf> = files
         .par_iter()
-        .enumerate()
-        .map(|(i, pgn_file)| {
-            let thread_output = format!("{}.thread_{:04}", output_file.display(), i);
-            let thread_file = File::create(&thread_output).unwrap();
+        .map(|pgn_file| {
+            let tmp = NamedTempFile::new().expect("failed to create tempfile");
 
-            let mut builder = BinpackBuilder::new(&pgn_file, thread_file);
+            // dont delete when dropped
+            let (thread_file, part_path) = tmp.keep().expect("failed to keep tempfile");
+
+            let mut builder = BinpackBuilder::new(pgn_file, thread_file);
             builder.create_binpack();
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-            let err_count = errors.load(Ordering::SeqCst);
+            print_progress(done, total);
 
-            if err_count > 0 {
-                print!("\rProcessing: {}/{} ({} errors)", done, total, err_count);
-            } else {
-                print!("\rProcessing: {}/{}", done, total);
-            }
-            std::io::stdout().flush().unwrap();
-
-            thread_output
+            part_path
         })
         .collect();
 
     println!();
-    let error_count = errors.load(Ordering::SeqCst);
-    if error_count > 0 {
-        println!("⚠ Processed with {} errors", error_count);
-    }
-
-    Ok(results)
+    Ok(parts)
 }
 
-fn concatenate_files(thread_files: &Vec<String>, output_file: &Path) -> Result<()> {
-    let mut output = OpenOptions::new()
+fn concatenate_files(thread_files: &[PathBuf], output_file: &Path) -> Result<()> {
+    let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(output_file)?;
+        .open(output_file)
+        .with_context(|| format!("Failed opening {}", output_file.display()))?;
+    let mut out = BufWriter::new(file);
 
-    for thread_file in thread_files {
-        let mut input = File::open(thread_file)?;
-        std::io::copy(&mut input, &mut output)?;
-        std::fs::remove_file(thread_file).ok();
+    for part in thread_files {
+        let mut input =
+            File::open(part).with_context(|| format!("Failed opening part {}", part.display()))?;
+        std::io::copy(&mut input, &mut out)
+            .with_context(|| format!("Failed copying part {}", part.display()))?;
+        let _ = std::fs::remove_file(part);
     }
+    out.flush()?;
     Ok(())
 }
 
@@ -168,9 +133,12 @@ fn collect_pgn_files(root: &Path) -> Result<Vec<PathBuf>> {
         if !entry.file_type().is_file() {
             continue;
         }
-
         let p = entry.path();
-        let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let name = p
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
 
         if name.ends_with(".pgn") || name.ends_with(".pgn.gz") {
             out.push(p.to_path_buf());
@@ -179,4 +147,13 @@ fn collect_pgn_files(root: &Path) -> Result<Vec<PathBuf>> {
 
     out.sort();
     Ok(out)
+}
+
+#[inline]
+fn print_progress(done: usize, total: usize) {
+    use std::io::Write as _;
+    if total > 0 {
+        print!("\rProcessing: {}/{}", done, total);
+        let _ = std::io::stdout().flush();
+    }
 }

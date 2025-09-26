@@ -14,6 +14,8 @@ rayon = "1.11.0"
 sfbinpack = { git = "https://github.com/Disservin/binpack-rust.git", rev = "7ddb18229602f4bd7510bd998a230bc742bcf387" }
 shakmaty = "0.29.3"
 walkdir = "2.5.0"
+tempfile = "3"
+
 
 [profile.release]
 debug = "line-tables-only"

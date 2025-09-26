@@ -43,7 +43,7 @@ fn main() -> Result<()> {
     println!();
 
     let t0 = std::time::Instant::now();
-    process_pgn_files(input_dir, &cli.output, cli.memory)?;
+    process_pgn_files(&input_dir, &cli.output, cli.memory)?;
     println!("Time taken: {:.2?}", t0.elapsed());
 
     let filesize = std::fs::metadata(&cli.output)?.len();
