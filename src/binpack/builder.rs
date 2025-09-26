@@ -44,7 +44,7 @@ impl<T: Write + Read + Seek> BinpackBuilder<T> {
         let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
             .expect("creating binpack writer");
 
-        let file = File::open(&self.input).expect(&format!("open {:?}", self.input));
+        let file = File::open(&self.input).unwrap_or_else(|_| panic!("open {:?}", self.input));
         let decoder = MultiGzDecoder::new(file);
         let buf_reader = BufReader::new(decoder);
         let mut reader = Reader::new(buf_reader);
@@ -61,7 +61,7 @@ impl<T: Write + Read + Seek> BinpackBuilder<T> {
         let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
             .expect("creating binpack writer");
 
-        let file = File::open(&self.input).expect(&format!("open {:?}", self.input));
+        let file = File::open(&self.input).unwrap_or_else(|_| panic!("open {:?}", self.input));
         let buf_reader = BufReader::new(file);
         let mut reader = Reader::new(buf_reader);
         let mut visitor = TrainingVisitor::new(&mut writer, self.input.clone());
@@ -122,7 +122,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
     fn apply_start_fen(&mut self) {
         if let Some(fen) = &self.start_fen {
             let f = shakmaty::fen::Fen::from_ascii(fen.as_bytes())
-                .expect(&format!("Invalid FEN format: {}", fen));
+                .unwrap_or_else(|_| panic!("Invalid FEN format: {}", fen));
 
             let pos = f
                 .into_position(shakmaty::CastlingMode::Standard)
@@ -154,7 +154,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
         // Flush previous if it never received a comment with eval.
         // assert!(self.pending_entry.is_none());
 
-        if !self.pending_entry.is_none() {
+        if self.pending_entry.is_some() {
             println!(
                 "Warning: pending entry without eval, input: {:?}",
                 self.input.as_path()
@@ -192,7 +192,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
             mv: sf_mv,
             score: 0,                      // will update if a comment with eval follows
             ply: self.binpack_board.ply(), // todo: will use the ply from the fen tag if present, correct or wrong?
-            result: result,
+            result,
         };
 
         // assert_eq!(
