@@ -10,7 +10,8 @@ flate2 = "1.1.2"
 human_bytes = "0.4.3"
 pgn-reader = "0.28.0"
 rayon = "1.11.0"
-sfbinpack = "0.5.0"
+# sfbinpack = "0.5.0"
+sfbinpack = { git = "https://github.com/Disservin/binpack-rust.git", rev = "e1459493669646e61cfa2c9b20a2dc811c5f3a8a" }
 shakmaty = "0.29.3"
 walkdir = "2.5.0"
 

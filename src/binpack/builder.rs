@@ -85,6 +85,7 @@ struct TrainingVisitor<'a> {
     start_fen: Option<String>,
     result: i16,
     chess: Chess,
+    binpack_board: SfPosition,
     ply: u16,
     pending_entry: Option<TrainingDataEntry>,
     pending_score_set: bool,
@@ -99,6 +100,7 @@ impl<'a> TrainingVisitor<'a> {
             start_fen: None,
             result: 0,
             chess: Chess::default(),
+            binpack_board: SfPosition::default(),
             ply: 0,
             pending_entry: None,
             pending_score_set: false,
@@ -111,6 +113,7 @@ impl<'a> TrainingVisitor<'a> {
         self.start_fen = None;
         self.result = 0;
         self.chess = Chess::default();
+        self.binpack_board = SfPosition::default();
 
         self.ply = 0;
         self.pending_entry = None;
@@ -127,8 +130,10 @@ impl<'a> TrainingVisitor<'a> {
                 .expect("Invalid chess position");
 
             self.chess = pos;
+            self.binpack_board = SfPosition::from_fen(fen).unwrap();
         } else {
             self.chess = Chess::default();
+            self.binpack_board = SfPosition::default();
         }
     }
 
@@ -161,19 +166,22 @@ impl<'a> TrainingVisitor<'a> {
             panic!("Pending entry without eval");
         }
 
-        let fen = Fen::from_position(&self.chess.clone(), EnPassantMode::Legal);
+        // let fen = Fen::from_position(&self.chess.clone(), EnPassantMode::Legal);
         // keep track of position and play move instead
-        let sfpos = SfPosition::from_fen(&fen.to_string())
-            .expect(&format!("SF position from fen error: {}", fen));
+        // let sfpos = SfPosition::from_fen(&fen.to_string())
+        //     .expect(&format!("SF position from fen error: {}", fen));
 
-        let sf_mv = util::convert_move(&mv, sfpos.side_to_move());
+        // assert_eq!(sfpos.fen(), self.binpack_board.fen());
+        // assert_eq!(sfpos, self.binpack_board);
+
+        let sf_mv = util::convert_move(&mv, self.binpack_board.side_to_move());
 
         // if white stm and white won, result = 1
         // if black stm and black won, result = 1
         // if draw, result = 0
         // else result = -1
 
-        let result = match (self.result, sfpos.side_to_move()) {
+        let result = match (self.result, self.binpack_board.side_to_move()) {
             (0, _) => 0,
             (1, SfColor::White) | (-1, SfColor::Black) => 1,
             (1, SfColor::Black) | (-1, SfColor::White) => -1,
@@ -181,17 +189,25 @@ impl<'a> TrainingVisitor<'a> {
         };
 
         let entry = TrainingDataEntry {
-            pos: sfpos,
+            pos: self.binpack_board,
             mv: sf_mv,
-            score: 0, // will update if a comment with eval follows
-            ply: self.ply,
+            score: 0,                      // will update if a comment with eval follows
+            ply: self.binpack_board.ply(), // todo: will use the ply from the fen tag if present, correct or wrong?
             result: result,
         };
+
+        // assert_eq!(
+        //     self.binpack_board.ply(),
+        //     self.ply,
+        //     "{:?}",
+        //     self.binpack_board.fen()
+        // );
 
         self.pending_entry = Some(entry);
         self.pending_score_set = false;
 
         self.chess.play_unchecked(mv);
+        self.binpack_board.do_move(sf_mv);
 
         self.ply += 1;
     }

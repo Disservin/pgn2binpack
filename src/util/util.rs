@@ -28,13 +28,13 @@ pub fn parse_eval_cp(comment: &str) -> Result<Option<i16>, &'static str> {
         // mate
         if p.starts_with("+M") || p.starts_with("-M") {
             let sign = if p.starts_with("+M") { 1 } else { -1 };
-            if let Ok(_) = p[2..]
+            if let Ok(n) = p[2..]
                 .chars()
                 .take_while(|c| c.is_ascii_digit())
                 .collect::<String>()
                 .parse::<i32>()
             {
-                return Ok(Some(32000 as i16 * sign));
+                return Ok(Some((32000 - n) as i16 * sign));
             }
         } else {
             let num = p.split('/').next().unwrap_or(p);
