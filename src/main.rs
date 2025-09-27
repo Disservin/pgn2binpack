@@ -4,6 +4,7 @@ use clap::Parser;
 mod binpack;
 mod cli;
 mod errors;
+mod io;
 mod process;
 mod util;
 mod wdl;
