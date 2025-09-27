@@ -417,8 +417,9 @@ dependencies = [
 
 [[package]]
 name = "sfbinpack"
-version = "0.5.1"
-source = "git+https://github.com/Disservin/binpack-rust.git?rev=7ddb18229602f4bd7510bd998a230bc742bcf387#7ddb18229602f4bd7510bd998a230bc742bcf387"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b67b31d04b0068fcfba2570392f8c43847e05741c49621cbd0a9aebfe59b8df6"
 dependencies = [
  "thiserror",
 ]

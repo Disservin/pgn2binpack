@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek};
 
 use anyhow::Result;
 use sfbinpack::CompressedTrainingDataEntryReader;
@@ -8,10 +8,7 @@ use shakmaty::{
     EnPassantMode, Position,
 };
 
-pub fn unique_positions_from_file<T: Write + Read + Seek>(
-    file: T,
-    limit: Option<usize>,
-) -> Result<u64> {
+pub fn unique_positions_from_file<T: Read + Seek>(file: T, limit: Option<usize>) -> Result<u64> {
     let mut reader = CompressedTrainingDataEntryReader::new(file)?;
     let mut position = Chess::default();
     let mut unique: HashSet<u64> = HashSet::new();

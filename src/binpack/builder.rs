@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, Read, Seek, Write},
+    io::{BufReader, Seek, Write},
     ops::ControlFlow,
     path::PathBuf,
 };
@@ -19,13 +19,13 @@ use pgn_reader::{RawComment, RawTag, Reader, SanPlus, Skip, Visitor};
 use crate::util::util;
 use crate::wdl::wdl;
 
-pub struct BinpackBuilder<T: Write + Read + Seek> {
+pub struct BinpackBuilder<T: Write + Seek> {
     input: PathBuf,
     output: T,
     total_pos: u64,
 }
 
-impl<T: Write + Read + Seek> BinpackBuilder<T> {
+impl<T: Write + Seek> BinpackBuilder<T> {
     pub fn new<P: Into<PathBuf>>(input_pgn: P, output_file: T) -> Self {
         Self {
             input: input_pgn.into(),
@@ -90,7 +90,7 @@ impl<T: Write + Read + Seek> BinpackBuilder<T> {
 
 // ---------------- Visitor & parsing logic ----------------
 
-struct TrainingVisitor<'a, T: Write + Read + Seek> {
+struct TrainingVisitor<'a, T: Write + Seek> {
     writer: &'a mut CompressedTrainingDataEntryWriter<T>,
     start_fen: Option<String>,
     result: i16,
@@ -104,7 +104,7 @@ struct TrainingVisitor<'a, T: Write + Read + Seek> {
     moves: u32,
 }
 
-impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
+impl<'a, T: Write + Seek> TrainingVisitor<'a, T> {
     fn new(writer: &'a mut CompressedTrainingDataEntryWriter<T>, input: PathBuf) -> Self {
         Self {
             writer,
@@ -247,7 +247,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
     }
 }
 
-impl<'a, T: Write + Read + Seek> Visitor for TrainingVisitor<'a, T> {
+impl<'a, T: Write + Seek> Visitor for TrainingVisitor<'a, T> {
     type Tags = ();
     type Movetext = ();
     type Output = u32; // number of moves processed per game

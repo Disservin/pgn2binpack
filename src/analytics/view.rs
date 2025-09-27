@@ -1,9 +1,9 @@
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek};
 
 use anyhow::Result;
 use sfbinpack::CompressedTrainingDataEntryReader;
 
-pub fn view_entries<T: Write + Read + Seek>(file: T, limit: Option<usize>) -> Result<()> {
+pub fn view_entries<T: Read + Seek>(file: T, limit: Option<usize>) -> Result<()> {
     let mut reader = CompressedTrainingDataEntryReader::new(file)?;
     let mut i: usize = 0;
 
