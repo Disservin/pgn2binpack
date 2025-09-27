@@ -20,7 +20,22 @@ cargo build --release
 ## Usage
 
 ```bash
-./target/release/pgn-binpack [INPUT] -o [OUTPUT]
+Convert PGN chess files to binpack format
+
+Usage: pgn-binpack.exe [OPTIONS] [DIR]
+
+Arguments:
+  [DIR]  Directory to search for PGN files
+
+Options:
+  -o, --output <OUTPUT>    Output binpack file
+  -t, --threads <THREADS>  Number of threads to use (default: all CPU cores)
+  -f, --force              Overwrite output file if it exists
+  -m, --memory [<MEMORY>]  Use memory for intermediate storage (may use more RAM, but faster) [default: true] [possible values: true, false]
+  -u, --unique [<FILE>]    various analytics
+      --limit <LIMIT>
+  -v, --view <VIEW>
+  -h, --help               Print help
 ```
 
 ### Examples
