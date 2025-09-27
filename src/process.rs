@@ -65,7 +65,10 @@ fn process_single_file_memory(
     total: usize,
 ) -> u64 {
     let mut builder = BinpackBuilder::new(pgn_file, Cursor::new(Vec::new()));
-    builder.create_binpack();
+
+    if let Err(e) = builder.create_binpack() {
+        eprintln!("\nError processing file {}: {:?}", pgn_file.display(), e);
+    }
 
     let positions = builder.total_positions();
     let buffer = builder.into_inner().unwrap().into_inner();
@@ -104,7 +107,10 @@ fn process_single_file_temp(
     let (file, path) = create_temp_file().expect("failed to create tempfile");
 
     let mut builder = BinpackBuilder::new(pgn_file, file);
-    builder.create_binpack();
+
+    if let Err(e) = builder.create_binpack() {
+        eprintln!("\nError processing file {}: {:?}", pgn_file.display(), e);
+    }
 
     let positions = builder.total_positions();
     update_progress(completed, total);

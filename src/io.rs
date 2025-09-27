@@ -38,7 +38,7 @@ fn is_pgn_file(path: &Path) -> bool {
 }
 
 pub fn create_temp_file() -> Result<(File, PathBuf)> {
-    let tmp = NamedTempFile::new()?;
+    let tmp = NamedTempFile::with_prefix("pgn2binpack_")?;
     Ok(tmp.keep()?)
 }
 
