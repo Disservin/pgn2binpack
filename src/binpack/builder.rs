@@ -97,7 +97,6 @@ struct TrainingVisitor<'a, T: Write + Seek> {
     result: i16,
     chess: Chess,
     binpack_board: SfPosition,
-    ply: u16,
     pending_entry: Option<TrainingDataEntry>,
     pending_score_set: bool,
     game_end_time: Option<String>,
@@ -112,7 +111,6 @@ impl<'a, T: Write + Seek> TrainingVisitor<'a, T> {
             result: 0,
             chess: Chess::default(),
             binpack_board: SfPosition::default(),
-            ply: 0,
             pending_entry: None,
             pending_score_set: false,
             game_end_time: None,
@@ -126,7 +124,6 @@ impl<'a, T: Write + Seek> TrainingVisitor<'a, T> {
         self.chess = Chess::default();
         self.binpack_board = SfPosition::default();
         self.moves = 0;
-        self.ply = 0;
         self.pending_entry = None;
         self.pending_score_set = false;
     }
@@ -191,7 +188,6 @@ impl<'a, T: Write + Seek> TrainingVisitor<'a, T> {
 
         self.chess.play_unchecked(mv);
         self.binpack_board.do_move(sf_mv);
-        self.ply += 1;
 
         Ok(())
     }
