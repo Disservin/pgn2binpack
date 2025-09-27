@@ -29,6 +29,9 @@ pub struct Cli {
     #[arg(short, long, num_args=0..=1, value_name = "FILE")]
     pub unique: Option<PathBuf>,
 
-    #[arg(long, requires = "unique")]
+    #[arg(long, requires_if("unique", "limit"), requires_if("view", "limit"))]
     pub limit: Option<usize>,
+
+    #[arg(short, long)]
+    pub view: Option<PathBuf>,
 }

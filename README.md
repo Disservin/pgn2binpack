@@ -34,6 +34,12 @@ cargo build --release
 
 # Run without building
 cargo run -r -- pgns -o output.binpack
+
+# View binpack contents
+cargo run -r -- --view ./fishpack32.binpack  | less
+
+# View limited amount of binpack content
+cargo run -r -- --view ./fishpack32.binpack --limit 10
 ```
 
 ## Options
