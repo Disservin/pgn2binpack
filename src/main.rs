@@ -58,10 +58,11 @@
 
 use std::{collections::HashSet, fs::File};
 
-use sfbinpack::{chess::position, CompressedTrainingDataEntryReader};
+use sfbinpack::CompressedTrainingDataEntryReader;
 use shakmaty::{
+    uci::UciMove,
     zobrist::{Zobrist64, ZobristHash},
-    Chess, EnPassantMode,
+    Chess, EnPassantMode, Position,
 };
 
 fn main() {
@@ -77,19 +78,33 @@ fn main() {
 
     let mut position = Chess::default();
     let mut unique: HashSet<u64> = HashSet::new();
+    let mut new_game = true;
+    let t0 = std::time::Instant::now();
 
     while reader.has_next() {
         let entry = reader.next();
-        let fen = entry.pos.fen().unwrap();
-        let f = shakmaty::fen::Fen::from_ascii(fen.as_bytes())
-            .unwrap_or_else(|_| panic!("Invalid FEN format: {}", fen));
 
-        position = f
-            .into_position(shakmaty::CastlingMode::Standard)
-            .expect("Invalid chess position");
+        if new_game {
+            let fen = entry.pos.fen().unwrap();
+
+            let f = shakmaty::fen::Fen::from_ascii(fen.as_bytes())
+                .unwrap_or_else(|_| panic!("Invalid FEN format: {}", fen));
+            position = f
+                .into_position(shakmaty::CastlingMode::Standard)
+                .expect("Invalid chess position");
+            new_game = false;
+        }
 
         let hash = position.zobrist_hash::<Zobrist64>(EnPassantMode::Legal);
         unique.insert(hash.0);
+
+        if reader.has_next() && reader.is_next_entry_continuation() {
+            let uci: UciMove = entry.mv.as_uci().parse().unwrap();
+            let m = uci.to_move(&position).unwrap();
+            position.play_unchecked(m);
+        } else {
+            new_game = true;
+        }
 
         // println!("entry:");
         // println!("fen {}", entry.pos.fen().unwrap());
@@ -99,12 +114,14 @@ fn main() {
         // println!("result {}", entry.result);
         // println!("\n");
 
+        if i > 10_000_000 {
+            break;
+        }
+
         i = i + 1;
-        // if i > 200 {
-        //     break;
-        // }
     }
 
     println!("read {} entries", i);
     println!("unique zobrist keys: {}", unique.len());
+    println!("time taken: {:.2?}", t0.elapsed());
 }
