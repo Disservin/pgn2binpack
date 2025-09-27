@@ -114,11 +114,11 @@ fn main() {
         // println!("result {}", entry.result);
         // println!("\n");
 
-        if i > 10_000_000 {
+        i = i + 1;
+
+        if i >= 100_000_000 {
             break;
         }
-
-        i = i + 1;
     }
 
     println!("read {} entries", i);
