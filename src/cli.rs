@@ -25,13 +25,15 @@ pub struct Cli {
     #[arg(short, long, default_missing_value="true", default_value = "true", num_args=0..=1)]
     pub memory: bool,
 
-    /// various analytics
+    /// Count unique positions in a binpack file
     #[arg(short, long, num_args=0..=1, value_name = "FILE")]
     pub unique: Option<PathBuf>,
 
+    /// Limit the number of entries processed (only with --unique or --view)
     #[arg(long, requires_if("unique", "limit"), requires_if("view", "limit"))]
     pub limit: Option<usize>,
 
+    /// View contents of a binpack file
     #[arg(short, long)]
     pub view: Option<PathBuf>,
 }

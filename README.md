@@ -32,9 +32,9 @@ Options:
   -t, --threads <THREADS>  Number of threads to use (default: all CPU cores)
   -f, --force              Overwrite output file if it exists
   -m, --memory [<MEMORY>]  Use memory for intermediate storage (may use more RAM, but faster) [default: true] [possible values: true, false]
-  -u, --unique [<FILE>]    various analytics
-      --limit <LIMIT>
-  -v, --view <VIEW>
+  -u, --unique [<FILE>]    Count unique positions in a binpack file
+      --limit <LIMIT>      Limit the number of entries processed (only with --unique or --view)
+  -v, --view <VIEW>        View contents of a binpack file
   -h, --help               Print help
 ```
 
