@@ -36,22 +36,12 @@ impl<T: Write + Seek> BinpackBuilder<T> {
     }
 
     pub fn create_binpack(&mut self) -> Result<()> {
-        if self.input.extension().and_then(|s| s.to_str()) == Some("gz") {
-            self.process_gz_pgn()
-        } else {
-            self.process_pgn()
-        }
-    }
+        let reader_input = self.get_reader()?;
+        let buf_reader = BufReader::new(reader_input);
+        let mut reader = Reader::new(buf_reader);
 
-    fn process_gz_pgn(&mut self) -> Result<()> {
         let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
             .context("creating binpack writer")?;
-
-        let file =
-            File::open(&self.input).with_context(|| format!("opening file {:?}", self.input))?;
-        let decoder = MultiGzDecoder::new(file);
-        let buf_reader = BufReader::new(decoder);
-        let mut reader = Reader::new(buf_reader);
         let mut visitor = TrainingVisitor::new(&mut writer);
 
         for res in reader.read_games(&mut visitor) {
@@ -62,22 +52,19 @@ impl<T: Write + Seek> BinpackBuilder<T> {
         Ok(())
     }
 
-    fn process_pgn(&mut self) -> Result<()> {
-        let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
-            .context("creating binpack writer")?;
+    fn get_reader(&self) -> Result<Box<dyn std::io::Read>> {
+        let reader_input: Box<dyn std::io::Read> =
+            if self.input.extension().and_then(|s| s.to_str()) == Some("gz") {
+                let file = File::open(&self.input)
+                    .with_context(|| format!("opening gz file {:?}", self.input))?;
+                Box::new(MultiGzDecoder::new(file))
+            } else {
+                let file = File::open(&self.input)
+                    .with_context(|| format!("opening file {:?}", self.input))?;
+                Box::new(file)
+            };
 
-        let file =
-            File::open(&self.input).with_context(|| format!("opening file {:?}", self.input))?;
-        let buf_reader = BufReader::new(file);
-        let mut reader = Reader::new(buf_reader);
-        let mut visitor = TrainingVisitor::new(&mut writer);
-
-        for res in reader.read_games(&mut visitor) {
-            let game_result = res.with_context(|| format!("reading PGN game: {:?}", self.input))?;
-            let moves = game_result.context("processing game moves")?;
-            self.total_pos += moves as u64;
-        }
-        Ok(())
+        Ok(reader_input)
     }
 
     pub fn into_inner(self) -> std::io::Result<T> {
@@ -93,13 +80,18 @@ impl<T: Write + Seek> BinpackBuilder<T> {
 
 struct TrainingVisitor<'a, T: Write + Seek> {
     writer: &'a mut CompressedTrainingDataEntryWriter<T>,
+    // todo: could apply directly
     start_fen: Option<String>,
+    // game result from the PGN tags: 1 = white win, -1 = black win, 0 = draw/unknown
     result: i16,
+    // shakmaty crate representation of the board
     chess: Chess,
+    // binpack crate representation of the board
     binpack_board: SfPosition,
     pending_entry: Option<TrainingDataEntry>,
     pending_score_set: bool,
     game_end_time: Option<String>,
+    // number of moves processed per game
     moves: u32,
 }
 
