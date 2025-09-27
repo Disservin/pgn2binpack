@@ -1,17 +1,22 @@
+use std::{
+    fs::{File, OpenOptions},
+    io::{BufWriter, Cursor, Write},
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+    thread,
+};
+
 use anyhow::{Context, Result};
 use rayon::prelude::*;
-use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Cursor, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
-use std::thread;
 use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 use crate::binpack::BinpackBuilder;
 
-pub fn process_pgn_files(pgn_root: &Path, output_file: &Path, use_memory: bool) -> Result<()> {
+pub fn process_pgn_files(pgn_root: &Path, output_file: &Path, use_memory: bool) -> Result<u64> {
     let files = collect_pgn_files(pgn_root)?;
     let total = files.len();
 
@@ -24,19 +29,20 @@ pub fn process_pgn_files(pgn_root: &Path, output_file: &Path, use_memory: bool) 
     let completed = AtomicUsize::new(0);
 
     if use_memory {
-        process_with_memory(files, output_file, &completed)?;
-    } else {
-        let parts = process_with_files(files, output_file, &completed)?;
-        concatenate_files(&parts, output_file)?;
+        let total_pos = process_with_memory(files, output_file, &completed)?;
+        return Ok(total_pos);
     }
-    Ok(())
+
+    let (parts, total_pos) = process_with_files(files, output_file, &completed)?;
+    concatenate_files(&parts, output_file)?;
+    Ok(total_pos)
 }
 
 fn process_with_memory(
     files: Vec<PathBuf>,
     output_file: &Path,
     completed: &AtomicUsize,
-) -> Result<()> {
+) -> Result<u64> {
     let total = files.len();
 
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
@@ -56,17 +62,25 @@ fn process_with_memory(
     });
 
     // produce buffers in parallel and send to writer
-    files.par_iter().for_each(|pgn_file| {
-        let memory_file = Cursor::new(Vec::new());
-        let mut builder = BinpackBuilder::new(pgn_file, memory_file);
-        builder.create_binpack();
+    let results: Vec<u64> = files
+        .par_iter()
+        .map(|pgn_file| {
+            let memory_file = Cursor::new(Vec::new());
+            let mut builder = BinpackBuilder::new(pgn_file, memory_file);
+            builder.create_binpack();
+            let positions = builder.total_positions();
 
-        let buffer = builder.into_inner().unwrap();
-        let _ = tx.send(buffer.into_inner());
+            let buffer = builder.into_inner().unwrap();
+            let _ = tx.send(buffer.into_inner());
 
-        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
-        print_progress(done, total);
-    });
+            let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+            print_progress(done, total);
+
+            positions
+        })
+        .collect();
+
+    let total_pos: u64 = results.iter().map(|n| *n).sum();
 
     // drop the sender to close the channel
     drop(tx);
@@ -74,17 +88,17 @@ fn process_with_memory(
     writer.join().expect("writer thread panicked")?;
 
     println!();
-    Ok(())
+    Ok(total_pos)
 }
 
 fn process_with_files(
     files: Vec<PathBuf>,
     _output_file: &Path,
     completed: &AtomicUsize,
-) -> Result<Vec<PathBuf>> {
+) -> Result<(Vec<PathBuf>, u64)> {
     let total = files.len();
 
-    let parts: Vec<PathBuf> = files
+    let results: Vec<(PathBuf, u64)> = files
         .par_iter()
         .map(|pgn_file| {
             let tmp = NamedTempFile::new().expect("failed to create tempfile");
@@ -94,16 +108,20 @@ fn process_with_files(
 
             let mut builder = BinpackBuilder::new(pgn_file, thread_file);
             builder.create_binpack();
+            let positions = builder.total_positions();
 
             let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
             print_progress(done, total);
 
-            part_path
+            (part_path, positions)
         })
         .collect();
 
+    let total_pos: u64 = results.iter().map(|(_, n)| *n).sum();
+    let parts: Vec<PathBuf> = results.into_iter().map(|(p, _)| p).collect();
+
     println!();
-    Ok(parts)
+    Ok((parts, total_pos))
 }
 
 fn concatenate_files(thread_files: &[PathBuf], output_file: &Path) -> Result<()> {

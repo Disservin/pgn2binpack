@@ -22,6 +22,7 @@ use crate::wdl::wdl;
 pub struct BinpackBuilder<T: Write + Read + Seek> {
     input: PathBuf,
     output: T,
+    total_pos: u64,
 }
 
 impl<T: Write + Read + Seek> BinpackBuilder<T> {
@@ -29,6 +30,7 @@ impl<T: Write + Read + Seek> BinpackBuilder<T> {
         Self {
             input: input_pgn.into(),
             output: output_file,
+            total_pos: 0,
         }
     }
 
@@ -52,7 +54,9 @@ impl<T: Write + Read + Seek> BinpackBuilder<T> {
         for res in reader.read_games(&mut visitor) {
             match res {
                 Err(e) => panic!("{:?}", e),
-                Ok(()) => {}
+                Ok(_moves) => {
+                    self.total_pos += _moves as u64;
+                }
             }
         }
     }
@@ -66,14 +70,21 @@ impl<T: Write + Read + Seek> BinpackBuilder<T> {
         let mut reader = Reader::new(buf_reader);
         let mut visitor = TrainingVisitor::new(&mut writer, self.input.clone());
         for res in reader.read_games(&mut visitor) {
-            if let Err(e) = res {
-                panic!("{:?}", e);
+            match res {
+                Err(e) => panic!("{:?}", e),
+                Ok(_moves) => {
+                    self.total_pos += _moves as u64;
+                }
             }
         }
     }
 
     pub fn into_inner(self) -> std::io::Result<T> {
         Ok(self.output)
+    }
+
+    pub fn total_positions(&self) -> u64 {
+        self.total_pos
     }
 }
 
@@ -90,6 +101,7 @@ struct TrainingVisitor<'a, T: Write + Read + Seek> {
     pending_score_set: bool,
     input: PathBuf,
     game_end_time: Option<String>,
+    moves: u32,
 }
 
 impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
@@ -105,6 +117,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
             pending_score_set: false,
             input,
             game_end_time: None,
+            moves: 0,
         }
     }
 
@@ -114,6 +127,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
         self.chess = Chess::default();
         self.binpack_board = SfPosition::default();
 
+        self.moves = 0;
         self.ply = 0;
         self.pending_entry = None;
         self.pending_score_set = false;
@@ -153,6 +167,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
     fn handle_move(&mut self, mv: Move) {
         // Flush previous if it never received a comment with eval.
         // assert!(self.pending_entry.is_none());
+        self.moves += 1;
 
         if self.pending_entry.is_some() {
             println!(
@@ -235,7 +250,7 @@ impl<'a, T: Write + Read + Seek> TrainingVisitor<'a, T> {
 impl<'a, T: Write + Read + Seek> Visitor for TrainingVisitor<'a, T> {
     type Tags = ();
     type Movetext = ();
-    type Output = ();
+    type Output = u32; // number of moves processed per game
 
     fn begin_tags(&mut self) -> ControlFlow<Self::Output, Self::Tags> {
         self.reset_game();
@@ -324,5 +339,6 @@ impl<'a, T: Write + Read + Seek> Visitor for TrainingVisitor<'a, T> {
 
     fn end_game(&mut self, _movetext: Self::Movetext) -> Self::Output {
         // self.flush_pending();
+        self.moves
     }
 }
