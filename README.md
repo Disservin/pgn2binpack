@@ -11,12 +11,6 @@ Converts PGN files (currently fishtest format) to concatenated binpack format.
 - `.pgn` files
 - `.pgn.gz` files (decompressed on-the-fly using `MultiGzDecoder`)
 
-## Installation
-
-```bash
-cargo build --release
-```
-
 ## Usage
 
 ```bash
