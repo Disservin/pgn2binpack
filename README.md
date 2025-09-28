@@ -1,6 +1,6 @@
 # PGN to Binpack Converter
 
-Converts PGN files (currently fishtest format) to concatenated binpack format.
+Converts PGN files to concatenated binpack format for chess position storage.
 
 ## Requirements
 
@@ -9,14 +9,16 @@ Converts PGN files (currently fishtest format) to concatenated binpack format.
 ## Supported Formats
 
 - `.pgn` files
-- `.pgn.gz` files (decompressed on-the-fly using `MultiGzDecoder`)
+- `.pgn.gz` files (decompressed on-the-fly)
 
-## Usage
+## Installation
 
-```
+```bash
 cargo install --git https://github.com/Disservin/pgn2binpack.git
 pgn2binpack --help
 ```
+
+## Usage
 
 ```bash
 Convert PGN chess files to binpack format
@@ -30,48 +32,46 @@ Options:
   -o, --output <OUTPUT>    Output binpack file
   -t, --threads <THREADS>  Number of threads to use (default: all CPU cores)
   -f, --force              Overwrite output file if it exists
-  -m, --memory [<MEMORY>]  Use memory for intermediate storage (may use more RAM, but faster) [default: true] [possible values: true, false]
+  -m, --memory [<MEMORY>]  Use memory for intermediate storage [default: true]
   -u, --unique [<FILE>]    Count unique positions in a binpack file
-      --limit <LIMIT>      Limit the number of entries processed (only with --unique or --view)
+      --limit <LIMIT>      Limit entries processed (with --unique or --view)
   -v, --view <VIEW>        View contents of a binpack file
   -h, --help               Print help
 ```
 
-### Examples
+## Examples
+
+### Basic Conversion
 
 ```bash
-# Convert folder of PGN files
-./target/release/pgn-binpack pgns -o output.binpack
+# Convert all files in "pgns" directory
+pgn-binpack pgns -o output.binpack
 
-# Convert single PGN file
-./target/release/pgn-binpack 123456.pgn -o output.binpack
+# Convert single file
+pgn-binpack game.pgn -o output.binpack
 
-# Run without building
-cargo run -r -- pgns -o output.binpack
-
-# View binpack contents
-cargo run -r -- --view ./fishpack32.binpack  | less
-
-# View limited amount of binpack content
-cargo run -r -- --view ./fishpack32.binpack --limit 10
+# Force overwrite existing output
+pgn-binpack pgns -o output.binpack --force
 ```
 
-## Options
+### Analysis
 
-### Performance
+```bash
+# View binpack contents
+pgn-binpack --view output.binpack
 
-- `--threads N` - Limit thread count (default: all CPU cores)
-- `--memory false` - Use temporary files instead of in-memory processing (for limited memory systems)
+# View first 100 positions
+pgn-binpack --view output.binpack --limit 100
 
-### Analytics
+# Count unique positions
+pgn-binpack --unique output.binpack
+```
 
-- `--unique [FILE]` - Count unique positions by Zobrist hash
-- `--limit N` - Limit unique position count to reduce memory usage
+## Performance
 
-## Memory Modes
-
-- **Default (in-memory)**: Faster, requires more memory
-- **Temporary files** (`--memory false`): Slower, uses less memory
+- **Memory mode** (default): Faster processing, higher RAM usage
+- **Disk mode** (`--memory false`): Lower RAM usage, slower processing
+- **Threading**: Defaults to all CPU cores, tune with `--threads`
 
 ## Status
 
