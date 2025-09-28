@@ -13,6 +13,11 @@ Converts PGN files (currently fishtest format) to concatenated binpack format.
 
 ## Usage
 
+```
+cargo install --git https://github.com/Disservin/pgn2binpack.git
+pgn2binpack --help
+```
+
 ```bash
 Convert PGN chess files to binpack format
 

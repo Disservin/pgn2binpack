@@ -294,7 +294,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4895175b425cb1f87721b59f0f286c2092bd4af812243672510e1ac53e2e0ad"
 
 [[package]]
-name = "pgn-binpack"
+name = "pgn-reader"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0e07db84c19e093741643903738788e6f773237c7eeb60f9a40191afc2a815a"
+dependencies = [
+ "btoi",
+ "memchr",
+ "shakmaty",
+]
+
+[[package]]
+name = "pgn2binpack"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -307,17 +318,6 @@ dependencies = [
  "shakmaty",
  "tempfile",
  "walkdir",
-]
-
-[[package]]
-name = "pgn-reader"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0e07db84c19e093741643903738788e6f773237c7eeb60f9a40191afc2a815a"
-dependencies = [
- "btoi",
- "memchr",
- "shakmaty",
 ]
 
 [[package]]
