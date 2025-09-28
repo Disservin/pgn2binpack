@@ -1,1 +1,0 @@
-// This file defines custom error types and error handling functions for the application.
