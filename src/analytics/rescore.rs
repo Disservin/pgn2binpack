@@ -1,58 +1,148 @@
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{mpsc, Arc};
+use std::thread;
 
 use anyhow::{anyhow, bail, Result};
 use sfbinpack::chess::piecetype::PieceType;
 use sfbinpack::chess::position::Position;
-use sfbinpack::{CompressedTrainingDataEntryReader, CompressedTrainingDataEntryWriter};
+use sfbinpack::{
+    CompressedTrainingDataEntryReader, CompressedTrainingDataEntryWriter, TrainingDataEntry,
+};
 
-use crate::wdl::wdl::{external_cp_to_internal, external_cp_to_internal_mat};
+use crate::wdl::wdl::external_cp_to_internal_mat;
+
+type WorkItem = (usize, String, Vec<String>, TrainingDataEntry, usize);
 
 pub fn rescore_binpack<R, W>(
     input: R,
     output: W,
     engine_path: &Path,
-    depth: u8,
+    nodes: usize,
     limit: Option<usize>,
 ) -> Result<usize>
 where
-    R: Read + Seek,
+    R: Read + Seek + Send + 'static,
     W: Read + Write + Seek,
 {
+    let num_threads = thread::available_parallelism()?.get();
+
     let mut reader = CompressedTrainingDataEntryReader::new(input)?;
     let mut writer = CompressedTrainingDataEntryWriter::new(output)?;
-    let mut engine = UciEngine::start(engine_path)?;
-    engine.new_game()?;
 
-    let mut processed = 0usize;
+    let (work_tx, work_rx) = mpsc::sync_channel::<WorkItem>(num_threads * 2);
+    let (result_tx, result_rx) = mpsc::sync_channel(num_threads * 2);
 
-    let mut fen: String = "".to_string();
-    let mut moves: Vec<String> = Vec::new();
+    let work_rx = Arc::new(std::sync::Mutex::new(work_rx));
 
-    while reader.has_next() {
-        let mut entry = reader.next();
-        if processed == 0 || reader.is_next_entry_continuation() {
-            fen = entry.pos.fen().unwrap();
-            moves.clear();
-        }
+    // Spawn worker threads
+    let workers: Vec<_> = (0..num_threads)
+        .map(|_| {
+            let work_rx = Arc::clone(&work_rx);
+            let result_tx = result_tx.clone();
+            let engine_path = engine_path.to_owned();
 
-        let score = engine.evaluate_moves(&fen, &moves, depth, &entry.pos)?;
-        entry.score = score.into();
-        writer.write_entry(&entry)?;
-        processed += 1;
+            thread::spawn(move || -> Result<()> {
+                let mut engine = UciEngine::start(&engine_path)?;
+                engine.new_game()?;
 
-        if let Some(limit) = limit {
-            if processed >= limit {
+                loop {
+                    let msg = work_rx.lock().unwrap().recv();
+                    match msg {
+                        Ok((idx, fen, moves, mut entry, depth)) => {
+                            let score = engine.evaluate_moves(&fen, &moves, depth, &entry.pos)?;
+                            entry.score = score.into();
+                            result_tx.send((idx, entry)).ok();
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                engine.shutdown()?;
+                Ok(())
+            })
+        })
+        .collect();
+
+    drop(work_rx);
+    drop(result_tx);
+
+    // Reader thread
+    let reader_handle = thread::spawn(move || -> Result<usize> {
+        let mut processed = 0usize;
+        let mut fen: String = "".to_string();
+        let mut moves: Vec<String> = Vec::new();
+
+        while reader.has_next() {
+            let entry = reader.next();
+            if processed == 0 || reader.is_next_entry_continuation() {
+                fen = entry.pos.fen().unwrap();
+                moves.clear();
+            }
+
+            if work_tx
+                .send((processed, fen.clone(), moves.clone(), entry, nodes))
+                .is_err()
+            {
                 break;
             }
+            processed += 1;
+
+            if let Some(limit) = limit {
+                if processed >= limit {
+                    break;
+                }
+            }
+
+            moves.push(entry.mv.as_uci());
         }
 
-        moves.push(entry.mv.as_uci());
+        Ok(processed)
+    });
+
+    // Write results in order with bounded buffer
+    let mut next_idx = 0;
+    let mut buffer = std::collections::BTreeMap::new();
+    const MAX_BUFFER_SIZE: usize = 10000;
+
+    let t0 = std::time::Instant::now();
+
+    for (idx, entry) in result_rx {
+        buffer.insert(idx, entry);
+
+        while let Some(entry) = buffer.remove(&next_idx) {
+            writer.write_entry(&entry)?;
+            next_idx += 1;
+        }
+
+        if buffer.len() > MAX_BUFFER_SIZE {
+            bail!("reordering buffer exceeded maximum size - possible ordering issue");
+        }
+
+        // every 1000 show progress
+        // if next_idx % 1000 == 0 {
+        let elapsed = t0.elapsed().as_secs_f64();
+        let rate = next_idx as f64 / elapsed;
+
+        print!(
+            "\rProcessed: {} entries, Rate: {:.2} entries/sec, Elapsed: {:.2?}",
+            next_idx,
+            rate,
+            std::time::Duration::from_secs_f64(elapsed),
+        );
+
+        // maybe a bit often but is OKAY, not too bad
+        writer.flush()?;
+    }
+
+    let processed = reader_handle.join().unwrap()?;
+
+    for worker in workers {
+        worker.join().unwrap()?;
     }
 
     drop(writer);
-    engine.shutdown()?;
     Ok(processed)
 }
 
@@ -97,39 +187,16 @@ impl UciEngine {
         self.wait_ready()
     }
 
-    fn evaluate(&mut self, fen: &str, depth: u8, pos: &Position) -> Result<i16> {
-        let depth = depth.max(1);
-        self.send_command(&format!("position fen {}", fen))?;
-        self.send_command(&format!("go depth {}", depth))?;
-
-        let mut last_score: Option<i16> = None;
-
-        loop {
-            let line = self.read_line()?;
-            let trimmed = line.trim();
-            if trimmed.starts_with("info") {
-                if let Some(score) = parse_score(trimmed, pos) {
-                    last_score = Some(score);
-                }
-            } else if trimmed.starts_with("bestmove") {
-                let score = last_score.ok_or_else(|| anyhow!("engine returned no score"))?;
-                self.wait_ready()?;
-                return Ok(score);
-            }
-        }
-    }
-
     fn evaluate_moves(
         &mut self,
         fen: &str,
         moves: &[String],
-        depth: u8,
+        nodes: usize,
         pos: &Position,
     ) -> Result<i16> {
-        let depth = depth.max(1);
         let moves_str = moves.join(" ");
         self.send_command(&format!("position fen {} moves {}", fen, moves_str))?;
-        self.send_command(&format!("go depth {}", depth))?;
+        self.send_command(&format!("go nodes {}", nodes))?;
 
         let mut last_score: Option<i16> = None;
 

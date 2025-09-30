@@ -49,7 +49,7 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     pub engine: Option<PathBuf>,
 
-    /// Depth to search when rescoring (default: 12)
-    #[arg(long, value_name = "DEPTH")]
-    pub rescore_depth: Option<u8>,
+    /// Depth to search when rescoring (default: 5000)
+    #[arg(long, value_name = "NODES")]
+    pub rescore_nodes: Option<usize>,
 }
