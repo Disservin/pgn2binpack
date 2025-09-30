@@ -123,21 +123,21 @@ fn main() -> Result<()> {
             .truncate(true)
             .open(output_path)?;
 
-        let depth = cli.rescore_depth.unwrap_or(12).max(1);
+        let nodes = cli.rescore_nodes.unwrap_or(5000).max(1);
         println!(
             "Rescoring {} -> {}",
             rescore_input.display(),
             output_path.display()
         );
         println!("Engine: {}", engine_path.display());
-        println!("Search depth: {}", depth);
+        println!("Search nodes: {}", nodes);
 
         let t0 = std::time::Instant::now();
         let count = analytics::rescore::rescore_binpack(
             input_file,
             output_file,
             engine_path,
-            depth,
+            nodes,
             cli.limit,
         )?;
         println!("Rescored entries: {}", count);
