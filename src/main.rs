@@ -86,5 +86,63 @@ fn main() -> Result<()> {
         println!("Completed in {:.2?}", t0.elapsed());
     }
 
+    if let Some(rescore_input) = cli.rescore.as_ref() {
+        if cli.engine.is_none() {
+            anyhow::bail!("--engine is required when using --rescore");
+        }
+        if cli.rescore_output.is_none() {
+            anyhow::bail!("--rescore-output is required when using --rescore");
+        }
+
+        if !rescore_input.exists() {
+            anyhow::bail!("Rescore input file does not exist: {:?}", rescore_input);
+        }
+
+        let output_path = cli.rescore_output.as_ref().unwrap().as_path();
+        if output_path.exists() {
+            if !cli.force {
+                anyhow::bail!(
+                    "Rescore output file already exists: {:?}. Use --force to overwrite.",
+                    output_path
+                );
+            }
+            std::fs::remove_file(output_path)?;
+        }
+
+        let engine_path = cli.engine.as_ref().unwrap().as_path();
+
+        let input_file = std::fs::File::options()
+            .read(true)
+            .write(false)
+            .create(false)
+            .open(rescore_input)?;
+        let output_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(output_path)?;
+
+        let depth = cli.rescore_depth.unwrap_or(12).max(1);
+        println!(
+            "Rescoring {} -> {}",
+            rescore_input.display(),
+            output_path.display()
+        );
+        println!("Engine: {}", engine_path.display());
+        println!("Search depth: {}", depth);
+
+        let t0 = std::time::Instant::now();
+        let count = analytics::rescore::rescore_binpack(
+            input_file,
+            output_file,
+            engine_path,
+            depth,
+            cli.limit,
+        )?;
+        println!("Rescored entries: {}", count);
+        println!("Completed in {:.2?}", t0.elapsed());
+    }
+
     Ok(())
 }

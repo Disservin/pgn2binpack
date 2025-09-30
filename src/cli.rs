@@ -29,11 +29,27 @@ pub struct Cli {
     #[arg(short, long, num_args=0..=1, value_name = "FILE")]
     pub unique: Option<PathBuf>,
 
-    /// Limit the number of entries processed (only with --unique or --view)
-    #[arg(long, requires_if("unique", "limit"), requires_if("view", "limit"))]
+    /// Limit the number of entries processed (only with --unique, --view or --rescore)
+    #[arg(long)]
     pub limit: Option<usize>,
 
     /// View contents of a binpack file
     #[arg(short, long)]
     pub view: Option<PathBuf>,
+
+    /// Rescore entries in a binpack file using a UCI engine
+    #[arg(long, value_name = "FILE")]
+    pub rescore: Option<PathBuf>,
+
+    /// Output binpack file that will receive rescored entries
+    #[arg(long, value_name = "FILE")]
+    pub rescore_output: Option<PathBuf>,
+
+    /// Path to the UCI engine binary
+    #[arg(long, value_name = "PATH")]
+    pub engine: Option<PathBuf>,
+
+    /// Depth to search when rescoring (default: 12)
+    #[arg(long, value_name = "DEPTH")]
+    pub rescore_depth: Option<u8>,
 }
