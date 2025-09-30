@@ -51,6 +51,12 @@ where
                     let msg = work_rx.lock().unwrap().recv();
                     match msg {
                         Ok((idx, fen, moves, mut entry, depth)) => {
+                            // Skip entries with VALUE_NONE
+                            if entry.score == 32002 || entry.score == -32002 {
+                                result_tx.send((idx, entry)).ok();
+                                continue;
+                            }
+
                             let score = engine.evaluate_moves(&fen, &moves, depth, &entry.pos)?;
                             entry.score = score.into();
                             result_tx.send((idx, entry)).ok();
