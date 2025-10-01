@@ -418,8 +418,7 @@ dependencies = [
 [[package]]
 name = "sfbinpack"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac4b7f376fcbdb5439c1b5d4afcbe847a5334e376f5d32f84f2ccf0c602ada0b"
+source = "git+https://github.com/Disservin/binpack-rust.git?rev=760954898f480c8e79dbbabd78216e7a9dc8438a#760954898f480c8e79dbbabd78216e7a9dc8438a"
 dependencies = [
  "arrayvec",
  "thiserror",
