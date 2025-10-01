@@ -6,3 +6,5 @@ pgns
 test
 target
 *binpack.thread*
+score_pairs.txt
+*.png

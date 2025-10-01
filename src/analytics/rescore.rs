@@ -28,12 +28,14 @@ where
 {
     let num_threads = thread::available_parallelism()?.get();
 
-    let mut writer = CompressedTrainingDataEntryWriter::new(output)?;
-
     let (work_tx, work_rx) = mpsc::sync_channel::<WorkItem>(num_threads * 2);
     let (result_tx, result_rx) = mpsc::sync_channel(num_threads * 2);
 
     let work_rx = Arc::new(std::sync::Mutex::new(work_rx));
+
+    let score_pairs_path = "score_pairs.txt";
+    let score_pairs_file = std::fs::File::create(score_pairs_path)?;
+    let score_pairs_writer = Arc::new(std::sync::Mutex::new(BufWriter::new(score_pairs_file)));
 
     // Spawn worker threads
     let workers: Vec<_> = (0..num_threads)
@@ -41,6 +43,7 @@ where
             let work_rx = Arc::clone(&work_rx);
             let result_tx = result_tx.clone();
             let engine_path = engine_path.to_owned();
+            let score_pairs_writer = Arc::clone(&score_pairs_writer);
 
             thread::spawn(move || -> Result<()> {
                 let mut engine = UciEngine::start(&engine_path)?;
@@ -61,6 +64,10 @@ where
                             let new_score =
                                 engine.evaluate_moves(&fen, &moves, depth, &entry.pos)?;
                             entry.score = new_score.into();
+
+                            // Save score pair
+                            let mut writer = score_pairs_writer.lock().unwrap();
+                            writeln!(writer, "{} {}", original_score, new_score)?;
 
                             result_tx.send((idx, entry)).ok();
                         }
@@ -119,11 +126,13 @@ where
 
     let t0 = std::time::Instant::now();
 
+    let mut writer = CompressedTrainingDataEntryWriter::new(output)?;
+
     for (idx, entry) in result_rx {
         buffer.insert(idx, entry);
 
         while let Some(entry) = buffer.remove(&next_idx) {
-            writer.write_entry(&entry)?;
+            writer.write_entry(&entry).unwrap();
             next_idx += 1;
         }
 
@@ -153,6 +162,7 @@ where
     writer.flush();
 
     drop(writer);
+
     Ok(processed)
 }
 
