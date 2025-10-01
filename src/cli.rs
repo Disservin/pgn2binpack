@@ -30,7 +30,7 @@ pub struct Cli {
     pub unique: Option<PathBuf>,
 
     /// Limit the number of entries processed (only with --unique or --view)
-    #[arg(long, requires_if("unique", "limit"), requires_if("view", "limit"))]
+    #[arg(long, requires("unique"), requires("view"))]
     pub limit: Option<usize>,
 
     /// View contents of a binpack file
