@@ -28,7 +28,6 @@ where
 {
     let num_threads = thread::available_parallelism()?.get();
 
-    let mut reader = CompressedTrainingDataEntryReader::new(input)?;
     let mut writer = CompressedTrainingDataEntryWriter::new(output)?;
 
     let (work_tx, work_rx) = mpsc::sync_channel::<WorkItem>(num_threads * 2);
@@ -51,14 +50,18 @@ where
                     let msg = work_rx.lock().unwrap().recv();
                     match msg {
                         Ok((idx, fen, moves, mut entry, depth)) => {
+                            let original_score = entry.score;
+
                             // Skip entries with VALUE_NONE
-                            if entry.score == 32002 || entry.score == -32002 {
+                            if original_score == 32002 || original_score == -32002 {
                                 result_tx.send((idx, entry)).ok();
                                 continue;
                             }
 
-                            let score = engine.evaluate_moves(&fen, &moves, depth, &entry.pos)?;
-                            entry.score = score.into();
+                            let new_score =
+                                engine.evaluate_moves(&fen, &moves, depth, &entry.pos)?;
+                            entry.score = new_score.into();
+
                             result_tx.send((idx, entry)).ok();
                         }
                         Err(_) => break,
@@ -76,6 +79,8 @@ where
 
     // Reader thread
     let reader_handle = thread::spawn(move || -> Result<usize> {
+        let mut reader = CompressedTrainingDataEntryReader::new(input)?;
+
         let mut processed = 0usize;
         let mut fen: String = "".to_string();
         let mut moves: Vec<String> = Vec::new();
