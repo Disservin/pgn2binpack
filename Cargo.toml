@@ -12,7 +12,7 @@ pgn-reader = "0.28.0"
 rayon = "1.11.0"
 # sfbinpack = "0.6.1"
 # use git source for now
-sfbinpack = { git = "https://github.com/Disservin/binpack-rust.git", rev = "760954898f480c8e79dbbabd78216e7a9dc8438a" }
+sfbinpack = { git = "https://github.com/Disservin/binpack-rust.git", rev = "39e2dd7336690fc31f87f8db74f5fa66646b9e19" }
 shakmaty = "0.29.3"
 walkdir = "2.5.0"
 tempfile = "3"
