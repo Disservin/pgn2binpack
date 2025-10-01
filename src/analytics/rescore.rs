@@ -142,9 +142,6 @@ where
             rate,
             std::time::Duration::from_secs_f64(elapsed),
         );
-
-        // maybe a bit often but is OKAY, not too bad
-        writer.flush()?;
     }
 
     let processed = reader_handle.join().unwrap()?;
@@ -152,6 +149,8 @@ where
     for worker in workers {
         worker.join().unwrap()?;
     }
+
+    writer.flush();
 
     drop(writer);
     Ok(processed)
