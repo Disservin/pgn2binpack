@@ -1,7 +1,11 @@
+use core::num;
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::{mpsc, Arc};
+use std::sync::{
+    mpsc::{self, TrySendError},
+    Arc,
+};
 use std::thread;
 
 use anyhow::{anyhow, bail, Result};
@@ -21,12 +25,13 @@ pub fn rescore_binpack<R, W>(
     engine_path: &Path,
     nodes: usize,
     limit: Option<usize>,
+    threads: Option<usize>,
 ) -> Result<usize>
 where
     R: Read + Seek + Send + 'static,
     W: Read + Write + Seek,
 {
-    let num_threads = thread::available_parallelism()?.get();
+    let num_threads = threads.unwrap_or_else(|| thread::available_parallelism().unwrap().get());
 
     let mut writer = CompressedTrainingDataEntryWriter::new(output)?;
 
@@ -77,50 +82,103 @@ where
     drop(work_rx);
     drop(result_tx);
 
-    // Reader thread
-    let reader_handle = thread::spawn(move || -> Result<usize> {
-        let mut reader = CompressedTrainingDataEntryReader::new(input)?;
-
-        let mut processed = 0usize;
-        let mut fen: String = "".to_string();
-        let mut moves: Vec<String> = Vec::new();
-
-        while reader.has_next() {
-            let entry = reader.next();
-            if processed == 0 || reader.is_next_entry_continuation() {
-                fen = entry.pos.fen().unwrap();
-                moves.clear();
-            }
-
-            if work_tx
-                .send((processed, fen.clone(), moves.clone(), entry, nodes))
-                .is_err()
-            {
-                break;
-            }
-            processed += 1;
-
-            if let Some(limit) = limit {
-                if processed >= limit {
-                    break;
-                }
-            }
-
-            moves.push(entry.mv.as_uci());
-        }
-
-        Ok(processed)
-    });
+    let mut reader = CompressedTrainingDataEntryReader::new(input)?;
+    let mut processed = 0usize;
+    let mut fen = String::new();
+    let mut moves: Vec<String> = Vec::new();
+    let mut inflight = 0usize;
+    let mut pending_work: Option<(WorkItem, String)> = None;
 
     // Write results in order with bounded buffer
     let mut next_idx = 0;
     let mut buffer = std::collections::BTreeMap::new();
     const MAX_BUFFER_SIZE: usize = 10000;
+    const MAX_INFLIGHT: usize = MAX_BUFFER_SIZE;
 
+    let mut done_reading = false;
     let t0 = std::time::Instant::now();
 
-    for (idx, entry) in result_rx {
+    loop {
+        if !done_reading {
+            while inflight < MAX_INFLIGHT {
+                if let Some((work_item, pending_move)) = pending_work.take() {
+                    match work_tx.try_send(work_item) {
+                        Ok(()) => {
+                            inflight += 1;
+                            processed += 1;
+                            moves.push(pending_move);
+                            if let Some(limit) = limit {
+                                if processed >= limit {
+                                    done_reading = true;
+                                }
+                            }
+                        }
+                        Err(TrySendError::Full(item)) => {
+                            pending_work = Some((item, pending_move));
+                            break;
+                        }
+                        Err(TrySendError::Disconnected(_)) => {
+                            bail!("workers dropped before accepting work");
+                        }
+                    }
+                    if done_reading {
+                        break;
+                    }
+                    continue;
+                }
+
+                if !reader.has_next() {
+                    done_reading = true;
+                    break;
+                }
+
+                let entry = reader.next();
+                let entry_fen = entry.pos.fen().unwrap();
+
+                if processed == 0 || reader.is_next_entry_continuation() {
+                    fen = entry_fen.clone();
+                    moves.clear();
+                }
+
+                let move_uci = entry.mv.as_uci();
+                let idx = processed;
+                let work_item = (idx, fen.clone(), moves.clone(), entry, nodes);
+
+                match work_tx.try_send(work_item) {
+                    Ok(()) => {
+                        inflight += 1;
+                        processed += 1;
+                        moves.push(move_uci);
+                        if let Some(limit) = limit {
+                            if processed >= limit {
+                                done_reading = true;
+                                break;
+                            }
+                        }
+                    }
+                    Err(TrySendError::Full(item)) => {
+                        pending_work = Some((item, move_uci));
+                        break;
+                    }
+                    Err(TrySendError::Disconnected(_)) => {
+                        bail!("workers dropped before accepting work");
+                    }
+                }
+            }
+        }
+
+        if inflight == 0 {
+            break;
+        }
+
+        let (idx, entry) = result_rx
+            .recv()
+            .map_err(|_| anyhow!("worker channel closed unexpectedly"))?;
+        inflight -= 1;
+
         buffer.insert(idx, entry);
+
+        // println!("Received result for entry {}", idx);
 
         while let Some(entry) = buffer.remove(&next_idx) {
             writer.write_entry(&entry)?;
@@ -131,20 +189,20 @@ where
         //     bail!("reordering buffer exceeded maximum size - possible ordering issue");
         // }
 
-        // every 1000 show progress
-        // if next_idx % 1000 == 0 {
-        let elapsed = t0.elapsed().as_secs_f64();
-        let rate = next_idx as f64 / elapsed;
+        if next_idx % 1000 == 0 {
+            let elapsed = t0.elapsed().as_secs_f64();
+            let rate = next_idx as f64 / elapsed;
 
-        print!(
-            "\rProcessed: {} entries, Rate: {:.2} entries/sec, Elapsed: {:.2?}",
-            next_idx,
-            rate,
-            std::time::Duration::from_secs_f64(elapsed),
-        );
+            print!(
+                "\rProcessed: {} entries, Rate: {:.2} entries/sec, Elapsed: {:.2?}",
+                next_idx,
+                rate,
+                std::time::Duration::from_secs_f64(elapsed),
+            );
+        }
     }
 
-    let processed = reader_handle.join().unwrap()?;
+    drop(work_tx);
 
     for worker in workers {
         worker.join().unwrap()?;

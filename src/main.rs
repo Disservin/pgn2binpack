@@ -16,6 +16,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     if let Some(threads) = cli.threads {
+        println!("Setting number of threads to {}", threads);
         rayon::ThreadPoolBuilder::new()
             .num_threads(threads)
             .build_global()?;
@@ -139,6 +140,7 @@ fn main() -> Result<()> {
             engine_path,
             nodes,
             cli.limit,
+            cli.threads,
         )?;
         println!("Rescored entries: {}", count);
         println!("Completed in {:.2?}", t0.elapsed());
