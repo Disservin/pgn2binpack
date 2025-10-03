@@ -127,9 +127,9 @@ where
             next_idx += 1;
         }
 
-        if buffer.len() > MAX_BUFFER_SIZE {
-            bail!("reordering buffer exceeded maximum size - possible ordering issue");
-        }
+        // if buffer.len() > MAX_BUFFER_SIZE {
+        //     bail!("reordering buffer exceeded maximum size - possible ordering issue");
+        // }
 
         // every 1000 show progress
         // if next_idx % 1000 == 0 {
