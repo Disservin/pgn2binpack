@@ -15,6 +15,22 @@ use crate::process::process_pgn_files;
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    println!("pgn2binpack v{}", env!("CARGO_PKG_VERSION"));
+    // print set values
+    println!("Input directory: {:?}", cli.input_dir);
+    println!("Output file: {:?}", cli.output);
+    println!("Threads: {:?}", cli.threads);
+    println!("Force overwrite: {}", cli.force);
+    println!("Use memory: {}", cli.memory);
+    println!("Unique count file: {:?}", cli.unique);
+    println!("View file: {:?}", cli.view);
+    println!("Rescore input file: {:?}", cli.rescore);
+    println!("Rescore output file: {:?}", cli.rescore_output);
+    println!("Engine path: {:?}", cli.engine);
+    println!("Rescore nodes: {:?}", cli.rescore_nodes);
+    println!("Limit: {:?}", cli.limit);
+    println!();
+
     if let Some(threads) = cli.threads {
         println!("Setting number of threads to {}", threads);
         rayon::ThreadPoolBuilder::new()
