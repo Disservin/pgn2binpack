@@ -58,14 +58,16 @@ where
                             let original_score = entry.score;
 
                             // Skip entries with VALUE_NONE
-                            if original_score == 32002 || original_score == -32002 {
+                            if original_score.abs() >= 28000 {
                                 result_tx.send((idx, entry)).ok();
                                 continue;
                             }
 
-                            let new_score =
-                                engine.evaluate_moves(&fen, &moves, depth, &entry.pos)?;
-                            entry.score = new_score.into();
+                            let static_eval = engine.static_eval(&fen, &moves)?;
+
+                            if static_eval.is_some() {
+                                entry.score = (entry.score + static_eval.unwrap()) / 2;
+                            }
 
                             result_tx.send((idx, entry)).ok();
                         }
@@ -279,6 +281,36 @@ impl UciEngine {
                 let score = last_score.ok_or_else(|| anyhow!("engine returned no score"))?;
                 self.wait_ready()?;
                 return Ok(score);
+            }
+        }
+    }
+
+    // just get the eval from eval commmand
+    fn static_eval(&mut self, fen: &str, moves: &[String], pos: &Position) -> Result<Option<i16>> {
+        let moves_str = moves.join(" ");
+        self.send_command(&format!("position fen {} moves {}", fen, moves_str))?;
+        self.send_command(&format!("eval"))?;
+
+        let mut last_score: Option<i16> = None;
+
+        loop {
+            let line = self.read_line()?;
+            let trimmed = line.trim();
+
+            if trimmed.starts_with("NNUE evaluation") {
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.len() >= 5 {
+                    if let Ok(score) = parts[2].parse::<f64>() {
+                        last_score = Some(external_cp_to_internal_mat(
+                            (score * 100.0) as i32,
+                            material_count(pos),
+                        ) as i16);
+                        return Ok(last_score);
+                    }
+                }
+            }
+            if trimmed.starts_with("Final evaluation: none") {
+                return Ok(None);
             }
         }
     }
