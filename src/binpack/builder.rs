@@ -527,7 +527,7 @@ impl<'a, T: Write + Seek> Visitor for ViriformatVisitor<'a, T> {
                 };
             }
             "Variant" => {
-                CHESS960.store(true, std::sync::atomic::Ordering::SeqCst);
+                // CHESS960.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             _ => {}
         }
