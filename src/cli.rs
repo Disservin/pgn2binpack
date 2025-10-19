@@ -1,5 +1,11 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum Backend {
+    Sfbinpack,
+    Viriformat,
+}
 
 #[derive(Parser)]
 #[command(name = "pgn2binpack")]
@@ -36,4 +42,8 @@ pub struct Cli {
     /// View contents of a binpack file
     #[arg(short, long)]
     pub view: Option<PathBuf>,
+
+    /// Output backend (sfbinpack or viriformat)
+    #[arg(long, value_enum, default_value_t = Backend::Sfbinpack)]
+    pub backend: Backend,
 }

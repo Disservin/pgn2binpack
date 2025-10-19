@@ -36,6 +36,7 @@ Options:
   -u, --unique [<FILE>]    Count unique positions in a binpack file
       --limit <LIMIT>      Limit entries processed (with --unique or --view)
   -v, --view <VIEW>        View contents of a binpack file
+      --backend <BACKEND>  Output backend: sfbinpack (default) or viriformat
   -h, --help               Print help
 ```
 
@@ -49,6 +50,9 @@ pgn-binpack pgns -o output.binpack
 
 # Convert single file
 pgn-binpack game.pgn -o output.binpack
+
+# Emit viriformat output
+pgn-binpack pgns -o output.viri --backend viriformat
 
 # Force overwrite existing output
 pgn-binpack pgns -o output.binpack --force

@@ -9,7 +9,7 @@ mod process;
 mod util;
 mod wdl;
 
-use crate::cli::Cli;
+use crate::cli::{Backend, Cli};
 use crate::process::process_pgn_files;
 
 fn main() -> Result<()> {
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
         println!();
 
         let t0 = std::time::Instant::now();
-        let count = process_pgn_files(&input, &output, cli.memory)?;
+        let count = process_pgn_files(&input, &output, cli.memory, cli.backend)?;
         println!("Time taken: {:.2?}", t0.elapsed());
 
         let filesize = std::fs::metadata(&output)?.len();
@@ -70,7 +70,8 @@ fn main() -> Result<()> {
             .create(false)
             .open(&unique)?;
         let t0 = std::time::Instant::now();
-        let unique_count = analytics::unique::unique_positions_from_file(file, cli.limit)?;
+        let unique_count =
+            analytics::unique::unique_positions_from_file(file, cli.limit, cli.backend)?;
         println!("Completed in {:.2?}", t0.elapsed());
         println!("Unique positions (Zobrist hashes): {}", unique_count);
     }
@@ -82,7 +83,7 @@ fn main() -> Result<()> {
             .create(false)
             .open(&path)?;
         let t0 = std::time::Instant::now();
-        analytics::view::view_entries(file, cli.limit)?;
+        analytics::view::view_entries(file, cli.limit, cli.backend)?;
         println!("Completed in {:.2?}", t0.elapsed());
     }
 

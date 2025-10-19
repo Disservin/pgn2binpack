@@ -1,9 +1,16 @@
+use anyhow::{anyhow, bail, Result as AnyResult};
 use sfbinpack::chess::{
     color::Color as SfColor,
     coords::Square as SfSquare,
     piece::Piece as SfPiece,
     piecetype::PieceType as SfPieceType,
     r#move::{Move as SfMove, MoveType as SfMoveType},
+};
+
+use viriformat::chess::{
+    chessmove::{Move as ViriMove, MoveFlags as ViriMoveFlags},
+    piece::PieceType as ViriPieceType,
+    types::Square as ViriSquare,
 };
 
 use shakmaty::{Move, Role};
@@ -87,4 +94,35 @@ pub fn convert_move(mv: &Move, color: SfColor) -> SfMove {
         move_type,
         promo_piece,
     )
+}
+
+pub fn convert_move_viriformat(mv: &Move) -> AnyResult<ViriMove> {
+    let from_sq = mv
+        .from()
+        .ok_or_else(|| anyhow!("move missing origin square"))?
+        .to_u32() as u8;
+    let to_sq = mv.to().to_u32() as u8;
+
+    let from =
+        ViriSquare::new(from_sq).ok_or_else(|| anyhow!("invalid from square index {}", from_sq))?;
+    let to = ViriSquare::new(to_sq).ok_or_else(|| anyhow!("invalid to square index {}", to_sq))?;
+
+    let converted = if mv.is_promotion() {
+        let promo = match mv.promotion() {
+            Some(Role::Queen) => ViriPieceType::Queen,
+            Some(Role::Rook) => ViriPieceType::Rook,
+            Some(Role::Bishop) => ViriPieceType::Bishop,
+            Some(Role::Knight) => ViriPieceType::Knight,
+            _ => bail!("invalid promotion piece"),
+        };
+        ViriMove::new_with_promo(from, to, promo)
+    } else if mv.is_en_passant() {
+        ViriMove::new_with_flags(from, to, ViriMoveFlags::EnPassant)
+    } else if mv.is_castle() {
+        ViriMove::new_with_flags(from, to, ViriMoveFlags::Castle)
+    } else {
+        ViriMove::new(from, to)
+    };
+
+    Ok(converted)
 }
