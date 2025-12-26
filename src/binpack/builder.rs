@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use flate2::read::MultiGzDecoder;
 
 use sfbinpack::{
@@ -17,6 +17,15 @@ use shakmaty::{fen::Fen, Chess, EnPassantMode, Move, Position};
 
 use pgn_reader::{RawComment, RawTag, Reader, SanPlus, Skip, Visitor};
 
+use viriformat::{
+    chess::{
+        board::{Board as ViriBoard, DrawType, GameOutcome, WinType},
+        chessmove::Move as ViriMove,
+    },
+    dataformat::Game as ViriGame,
+};
+
+use crate::cli::Backend;
 use crate::util::util;
 use crate::wdl::wdl;
 
@@ -24,14 +33,16 @@ pub struct BinpackBuilder<T: Write + Seek> {
     input: PathBuf,
     output: T,
     total_pos: u64,
+    backend: Backend,
 }
 
 impl<T: Write + Seek> BinpackBuilder<T> {
-    pub fn new<P: Into<PathBuf>>(input_pgn: P, output_file: T) -> Self {
+    pub fn new<P: Into<PathBuf>>(input_pgn: P, output_file: T, backend: Backend) -> Self {
         Self {
             input: input_pgn.into(),
             output: output_file,
             total_pos: 0,
+            backend,
         }
     }
 
@@ -40,14 +51,28 @@ impl<T: Write + Seek> BinpackBuilder<T> {
         let buf_reader = BufReader::new(reader_input);
         let mut reader = Reader::new(buf_reader);
 
-        let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
-            .context("creating binpack writer")?;
-        let mut visitor = TrainingVisitor::new(&mut writer);
+        match self.backend {
+            Backend::Sfbinpack => {
+                let mut writer = CompressedTrainingDataEntryWriter::new(&mut self.output)
+                    .context("creating binpack writer")?;
+                let mut visitor = SfVisitor::new(&mut writer);
 
-        for res in reader.read_games(&mut visitor) {
-            let game_result = res.with_context(|| format!("reading PGN game: {:?}", self.input))?;
-            let moves = game_result.context("processing game moves")?;
-            self.total_pos += moves as u64;
+                for res in reader.read_games(&mut visitor) {
+                    let game_result =
+                        res.with_context(|| format!("reading PGN game: {:?}", self.input))?;
+                    let moves = game_result.context("processing game moves")?;
+                    self.total_pos += moves as u64;
+                }
+            }
+            Backend::Viriformat => {
+                let mut visitor = ViriformatVisitor::new(&mut self.output);
+                for res in reader.read_games(&mut visitor) {
+                    let game_result =
+                        res.with_context(|| format!("reading PGN game: {:?}", self.input))?;
+                    let moves = game_result.context("processing game moves")?;
+                    self.total_pos += moves as u64;
+                }
+            }
         }
         Ok(())
     }
@@ -78,7 +103,7 @@ impl<T: Write + Seek> BinpackBuilder<T> {
 
 // ---------------- Visitor & parsing logic ----------------
 
-struct TrainingVisitor<'a, T: Write + Seek> {
+struct SfVisitor<'a, T: Write + Seek> {
     writer: &'a mut CompressedTrainingDataEntryWriter<T>,
     // todo: could apply directly
     start_fen: Option<String>,
@@ -95,7 +120,7 @@ struct TrainingVisitor<'a, T: Write + Seek> {
     moves: u32,
 }
 
-impl<'a, T: Write + Seek> TrainingVisitor<'a, T> {
+impl<'a, T: Write + Seek> SfVisitor<'a, T> {
     fn new(writer: &'a mut CompressedTrainingDataEntryWriter<T>) -> Self {
         Self {
             writer,
@@ -205,7 +230,7 @@ impl<'a, T: Write + Seek> TrainingVisitor<'a, T> {
     }
 }
 
-impl<'a, T: Write + Seek> Visitor for TrainingVisitor<'a, T> {
+impl<'a, T: Write + Seek> Visitor for SfVisitor<'a, T> {
     type Tags = ();
     type Movetext = ();
     type Output = Result<u32>; // number of moves processed per game
@@ -326,6 +351,256 @@ impl<'a, T: Write + Seek> Visitor for TrainingVisitor<'a, T> {
     }
 
     fn end_game(&mut self, _movetext: Self::Movetext) -> Self::Output {
+        Ok(self.moves)
+    }
+}
+
+struct ViriformatVisitor<'a, T: Write + Seek> {
+    writer: &'a mut T,
+    start_fen: Option<String>,
+    result: Option<GameOutcome>,
+    chess: Chess,
+    viri_board: ViriBoard,
+    game: Option<ViriGame>,
+    pending_move: Option<ViriMove>,
+    pending_eval_set: bool,
+    moves: u32,
+}
+
+impl<'a, T: Write + Seek> ViriformatVisitor<'a, T> {
+    fn new(writer: &'a mut T) -> Self {
+        Self {
+            writer,
+            start_fen: None,
+            result: None,
+            chess: Chess::default(),
+            viri_board: ViriBoard::default(),
+            game: None,
+            pending_move: None,
+            pending_eval_set: false,
+            moves: 0,
+        }
+    }
+
+    fn reset_game(&mut self) {
+        self.start_fen = None;
+        self.result = None;
+        self.chess = Chess::default();
+        self.viri_board = ViriBoard::default();
+        self.game = None;
+        self.pending_move = None;
+        self.pending_eval_set = false;
+        self.moves = 0;
+    }
+
+    fn apply_start_fen(&mut self) -> Result<()> {
+        if let Some(fen) = &self.start_fen {
+            let f = shakmaty::fen::Fen::from_ascii(fen.as_bytes())
+                .with_context(|| format!("parsing FEN: {}", fen))?;
+            let pos = f
+                .into_position(shakmaty::CastlingMode::Standard)
+                .with_context(|| format!("creating position from FEN: {}", fen))?;
+            self.chess = pos;
+
+            let mut board = ViriBoard::new();
+            board
+                .set_from_fen(fen, false)
+                .with_context(|| format!("creating viriformat board from FEN: {}", fen))?;
+            self.viri_board = board;
+        } else {
+            self.chess = Chess::default();
+            self.viri_board = ViriBoard::default();
+        }
+
+        let mut game = ViriGame::new(&self.viri_board);
+        if let Some(result) = self.result {
+            game.set_outcome(result);
+        }
+        self.game = Some(game);
+
+        Ok(())
+    }
+
+    fn flush_pending(&mut self, eval: i16) -> Result<()> {
+        let mv = self
+            .pending_move
+            .take()
+            .context("no pending move available")?;
+
+        if !self.pending_eval_set {
+            bail!("pending evaluation was not set before flush");
+        }
+
+        let game = self
+            .game
+            .as_mut()
+            .context("game state not initialised before writing")?;
+        game.add_move(mv, eval);
+
+        self.pending_eval_set = false;
+        Ok(())
+    }
+
+    fn handle_move(&mut self, mv: Move) -> Result<()> {
+        self.moves += 1;
+        if self.pending_move.is_some() {
+            bail!("previous move is still pending evaluation");
+        }
+
+        let viri_move = util::convert_move_viriformat(&mv)?;
+        self.pending_move = Some(viri_move);
+        self.pending_eval_set = false;
+
+        self.chess.play_unchecked(mv);
+        if !self.viri_board.make_move_simple(viri_move) {
+            bail!("failed to apply move on viriformat board");
+        }
+
+        Ok(())
+    }
+
+    fn attach_comment_eval(&mut self, comment: &str) -> Result<()> {
+        let cp = match util::parse_eval_cp(comment) {
+            Ok(Some(v)) => v,
+            Ok(None) => return Ok(()),
+            Err(_) => bail!("failed to parse evaluation from comment: {}", comment),
+        };
+
+        self.pending_eval_set = true;
+        self.flush_pending(cp)
+    }
+}
+
+impl<'a, T: Write + Seek> Visitor for ViriformatVisitor<'a, T> {
+    type Tags = ();
+    type Movetext = ();
+    type Output = Result<u32>;
+
+    fn begin_tags(&mut self) -> ControlFlow<Self::Output, Self::Tags> {
+        self.reset_game();
+        ControlFlow::Continue(())
+    }
+
+    fn tag(
+        &mut self,
+        _tags: &mut Self::Tags,
+        name: &[u8],
+        value: RawTag<'_>,
+    ) -> ControlFlow<Self::Output> {
+        let n = match std::str::from_utf8(name) {
+            Ok(val) => val,
+            Err(e) => {
+                return ControlFlow::Break(Err(anyhow::anyhow!(
+                    "invalid UTF-8 in tag name: {:?}, error: {}",
+                    name,
+                    e
+                )))
+            }
+        };
+
+        let v = match std::str::from_utf8(value.0) {
+            Ok(val) => val,
+            Err(e) => {
+                return ControlFlow::Break(Err(anyhow::anyhow!(
+                    "invalid UTF-8 in tag value: {:?}, error: {}",
+                    value.0,
+                    e
+                )))
+            }
+        };
+
+        match n {
+            "FEN" => self.start_fen = Some(v.to_string()),
+            "Result" => {
+                self.result = match v {
+                    "1-0" => Some(GameOutcome::WhiteWin(WinType::Adjudication)),
+                    "0-1" => Some(GameOutcome::BlackWin(WinType::Adjudication)),
+                    "1/2-1/2" => Some(GameOutcome::Draw(DrawType::Adjudication)),
+                    "*" => None,
+                    _ => {
+                        return ControlFlow::Break(Err(anyhow::anyhow!(
+                            "invalid result format: {}",
+                            v
+                        )))
+                    }
+                };
+            }
+            "Variant" => {}
+            _ => {}
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn begin_movetext(&mut self, _tags: Self::Tags) -> ControlFlow<Self::Output, Self::Movetext> {
+        if let Err(e) = self.apply_start_fen() {
+            return ControlFlow::Break(Err(e));
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn san(
+        &mut self,
+        _movetext: &mut Self::Movetext,
+        san_plus: SanPlus,
+    ) -> ControlFlow<Self::Output> {
+        match san_plus.san.to_move(&self.chess) {
+            Ok(mv) => {
+                if let Err(e) = self.handle_move(mv) {
+                    return ControlFlow::Break(Err(e));
+                }
+            }
+            Err(e) => {
+                let fen = Fen::from_position(&self.chess, EnPassantMode::Legal).to_string();
+                return ControlFlow::Break(Err(anyhow::anyhow!(
+                    "parsing SAN to move failed: {:?}, san: {:?}, fen: {:?}",
+                    e,
+                    san_plus.san,
+                    fen
+                )));
+            }
+        }
+        ControlFlow::Continue(())
+    }
+
+    fn comment(
+        &mut self,
+        _movetext: &mut Self::Movetext,
+        comment: RawComment<'_>,
+    ) -> ControlFlow<Self::Output> {
+        let c = match std::str::from_utf8(comment.0) {
+            Ok(val) => val,
+            Err(e) => return ControlFlow::Break(Err(anyhow::anyhow!(e))),
+        };
+
+        if let Err(e) = self.attach_comment_eval(c) {
+            return ControlFlow::Break(Err(e));
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    fn begin_variation(
+        &mut self,
+        _movetext: &mut Self::Movetext,
+    ) -> ControlFlow<Self::Output, Skip> {
+        ControlFlow::Continue(Skip(true))
+    }
+
+    fn end_game(&mut self, _movetext: Self::Movetext) -> Self::Output {
+        if self.pending_move.is_some() {
+            return Err(anyhow::anyhow!(
+                "pending move without evaluation at end of game"
+            ));
+        }
+
+        let mut game = self
+            .game
+            .take()
+            .context("missing game state when finishing viriformat output")?;
+        game.serialise_into(self.writer)
+            .context("writing viriformat game")?;
+
         Ok(self.moves)
     }
 }
