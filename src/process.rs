@@ -10,7 +10,6 @@ use std::{
 
 use anyhow::Result;
 use rayon::prelude::*;
-use viriformat::chess::CHESS960;
 
 use crate::binpack::BinpackBuilder;
 use crate::cli::Backend;
@@ -30,10 +29,6 @@ pub fn process_pgn_files(
 
     println!("Found {} PGN files to process", files.len());
     let completed = AtomicUsize::new(0);
-
-    if backend == Backend::Viriformat {
-        CHESS960.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
 
     if use_memory {
         process_with_memory_buffer(files, output_file, &completed, backend)

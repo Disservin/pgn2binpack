@@ -15,7 +15,7 @@ sfbinpack = { git = "https://github.com/Disservin/binpack-rust.git", branch = "m
 shakmaty = "0.29.3"
 walkdir = "2.5.0"
 tempfile = "3"
-viriformat = "2.0.1"
+viriformat = "3.0.0"
 
 
 [profile.release]

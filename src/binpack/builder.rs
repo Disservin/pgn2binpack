@@ -21,7 +21,6 @@ use viriformat::{
     chess::{
         board::{Board as ViriBoard, DrawType, GameOutcome, WinType},
         chessmove::Move as ViriMove,
-        CHESS960,
     },
     dataformat::Game as ViriGame,
 };
@@ -405,7 +404,7 @@ impl<'a, T: Write + Seek> ViriformatVisitor<'a, T> {
 
             let mut board = ViriBoard::new();
             board
-                .set_from_fen(fen)
+                .set_from_fen(fen, false)
                 .with_context(|| format!("creating viriformat board from FEN: {}", fen))?;
             self.viri_board = board;
         } else {
@@ -526,9 +525,7 @@ impl<'a, T: Write + Seek> Visitor for ViriformatVisitor<'a, T> {
                     }
                 };
             }
-            "Variant" => {
-                // CHESS960.store(true, std::sync::atomic::Ordering::SeqCst);
-            }
+            "Variant" => {}
             _ => {}
         }
 
