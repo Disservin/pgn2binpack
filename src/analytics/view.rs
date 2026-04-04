@@ -513,7 +513,9 @@ fn render_board(fen: &str, use_color: bool) -> Result<String> {
 
 fn render_square(piece: Option<char>, rank_idx: usize, file_idx: usize, use_color: bool) -> String {
     let dark_square = (rank_idx + file_idx) % 2 == 1;
-    let symbol = piece.unwrap_or(if use_color { ' ' } else { '.' });
+    let symbol = piece
+        .map(unicode_piece)
+        .unwrap_or(if use_color { ' ' } else { '.' });
 
     if !use_color {
         return format!(" {} ", symbol);
@@ -533,6 +535,24 @@ fn render_square(piece: Option<char>, rank_idx: usize, file_idx: usize, use_colo
     format!("{}{fg} {} \x1b[0m", bg, symbol)
 }
 
+fn unicode_piece(piece: char) -> char {
+    match piece {
+        'K' => '♔',
+        'Q' => '♕',
+        'R' => '♖',
+        'B' => '♗',
+        'N' => '♘',
+        'P' => '♙',
+        'k' => '♚',
+        'q' => '♛',
+        'r' => '♜',
+        'b' => '♝',
+        'n' => '♞',
+        'p' => '♟',
+        _ => '?',
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::render_board;
@@ -547,8 +567,8 @@ mod tests {
 
         let lines: Vec<&str> = board.lines().collect();
 
-        assert_eq!(lines[0], "8  r  n  b  q  k  b  n  r ");
-        assert_eq!(lines[7], "1  R  N  B  Q  K  B  N  R ");
+        assert_eq!(lines[0], "8  ♜  ♞  ♝  ♛  ♚  ♝  ♞  ♜ ");
+        assert_eq!(lines[7], "1  ♖  ♘  ♗  ♕  ♔  ♗  ♘  ♖ ");
         assert!(board.contains("  a  b  c  d  e  f  g  h"));
     }
 }
