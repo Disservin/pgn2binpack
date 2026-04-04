@@ -14,6 +14,11 @@ use crate::cli::Backend;
 const LARGE_SQUARE_WIDTH: usize = 7;
 const LARGE_BOARD_LEFT_MARGIN: usize = 3;
 const BOARD_FILES: usize = 8;
+const LIGHT_SQUARE_BG: &str = "\x1b[48;5;250m";
+const DARK_SQUARE_BG: &str = "\x1b[48;5;60m";
+const LIGHT_PIECE_FG: &str = "\x1b[1;38;5;255m";
+const DARK_PIECE_FG: &str = "\x1b[1;38;5;16m";
+const VALUE_NONE_SCORE: i32 = 32002;
 
 #[derive(Clone, Debug)]
 struct ViewFrame {
@@ -168,7 +173,7 @@ impl<T: Read + Seek> SfSource<T> {
                 .fen()
                 .map_err(|err| anyhow!("failed to render FEN for entry: {err:?}"))?,
             uci_move: entry.mv.as_uci().to_string(),
-            score: entry.score.to_string(),
+            score: format_score(i32::from(entry.score)),
             ply: entry.ply.into(),
             result: format!("{:?}", entry.result),
         };
@@ -237,7 +242,7 @@ fn build_viriformat_frames(game: ViriGame, game_index: usize) -> Result<VecDeque
             position_in_game: position_in_game + 1,
             fen: board.to_string(),
             uci_move: mv.display(false).to_string(),
-            score: eval.get().to_string(),
+            score: format_score(i32::from(eval.get())),
             ply: board.ply() as u32,
             result: format!("{:?}", game.outcome()),
         });
@@ -543,6 +548,14 @@ fn side_to_move(fen: &str) -> &'static str {
     }
 }
 
+fn format_score(score: i32) -> String {
+    if score == VALUE_NONE_SCORE {
+        "VALUE_NONE".to_string()
+    } else {
+        score.to_string()
+    }
+}
+
 fn dump_frames<T: Read + Seek>(session: &mut ViewSession<T>) -> Result<()> {
     let mut index = 0usize;
 
@@ -712,13 +725,13 @@ fn render_large_square(
 ) -> String {
     let dark_square = (rank_idx + file_idx) % 2 == 1;
     let bg = if dark_square {
-        "\x1b[48;5;101m"
+        DARK_SQUARE_BG
     } else {
-        "\x1b[48;5;223m"
+        LIGHT_SQUARE_BG
     };
     let fg = match piece {
-        Some(ch) if ch.is_uppercase() => "\x1b[38;5;255m",
-        Some(_) => "\x1b[38;5;16m",
+        Some(ch) if ch.is_uppercase() => LIGHT_PIECE_FG,
+        Some(_) => DARK_PIECE_FG,
         None => "",
     };
     let content = match band {
@@ -740,13 +753,13 @@ fn render_square(piece: Option<char>, rank_idx: usize, file_idx: usize, use_colo
     }
 
     let bg = if dark_square {
-        "\x1b[48;5;101m"
+        DARK_SQUARE_BG
     } else {
-        "\x1b[48;5;223m"
+        LIGHT_SQUARE_BG
     };
     let fg = match piece {
-        Some(ch) if ch.is_uppercase() => "\x1b[38;5;255m",
-        Some(_) => "\x1b[38;5;16m",
+        Some(ch) if ch.is_uppercase() => LIGHT_PIECE_FG,
+        Some(_) => DARK_PIECE_FG,
         None => "",
     };
 
