@@ -415,19 +415,20 @@ fn render_frame(
     let right_panel_x = board_x + board_width + panel_gap;
     let right_panel_width = term_width.saturating_sub(right_panel_x);
 
-    let left_panel = vec![
+    let left_panel: Vec<String> = Vec::new();
+    let mut right_panel = vec![
         format!("Position {}", index + 1),
         format!("Total:    {}", total_display),
         format!("Game:     {}", frame.game_index),
-        format!("Move:     {}", frame.position_in_game),
-        String::new(),
+        format!("Move #:    {}", frame.position_in_game),
         format!("Side:     {}", side_to_move(&frame.fen)),
         format!("Ply:      {}", frame.ply),
         format!("Result:   {}", frame.result),
-    ];
-    let mut right_panel = vec![
+        String::new(),
         format!("Move:  {}", frame.uci_move),
         format!("Eval:  {}", frame.score),
+        String::new(),
+        "FEN".to_string(),
         String::new(),
         "Keys".to_string(),
         "->/Space  next".to_string(),
@@ -445,6 +446,12 @@ fn render_frame(
     if !message.is_empty() {
         right_panel.push(String::new());
         right_panel.push(message.to_string());
+    }
+
+    if right_panel_width > 0 {
+        let fen_insert_at = 11;
+        let fen_lines = wrap_text(&frame.fen, right_panel_width);
+        right_panel.splice(fen_insert_at..fen_insert_at, fen_lines);
     }
 
     for (row, line) in board_lines.iter().enumerate() {
@@ -500,6 +507,28 @@ fn fit_panel_line(line: &str, width: usize) -> String {
 fn panel_origin(board_y: usize, board_height: usize, panel_height: usize) -> usize {
     let board_mid = board_y + board_height / 2;
     board_mid.saturating_sub(panel_height / 2)
+}
+
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+
+    let mut lines = Vec::new();
+    let chars: Vec<char> = text.chars().collect();
+    let mut start = 0usize;
+
+    while start < chars.len() {
+        let end = (start + width).min(chars.len());
+        lines.push(chars[start..end].iter().collect());
+        start = end;
+    }
+
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines
 }
 
 fn interactive_board_width() -> usize {
