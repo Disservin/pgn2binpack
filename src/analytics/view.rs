@@ -478,6 +478,10 @@ fn render_board(fen: &str, use_color: bool) -> Result<String> {
         anyhow::bail!("FEN board layout must have 8 ranks: {}", fen);
     }
 
+    if use_color {
+        return render_large_board(&ranks);
+    }
+
     let mut out = String::new();
     for (rank_idx, rank) in ranks.iter().enumerate() {
         let rank_label = 8 - rank_idx;
@@ -509,6 +513,117 @@ fn render_board(fen: &str, use_color: bool) -> Result<String> {
     out.push_str("  a  b  c  d  e  f  g  h");
 
     Ok(out)
+}
+
+fn render_large_board(ranks: &[&str]) -> Result<String> {
+    let mut out = String::new();
+
+    for (rank_idx, rank) in ranks.iter().enumerate() {
+        let rank_label = 8 - rank_idx;
+        let mut top = String::from("   ");
+        let mut middle = format!("{}  ", rank_label);
+        let mut bottom = String::from("   ");
+        let mut file_idx = 0usize;
+
+        for ch in rank.chars() {
+            match ch {
+                '1'..='8' => {
+                    for _ in 0..ch.to_digit(10).expect("digit") {
+                        top.push_str(&render_large_square(
+                            None,
+                            rank_idx,
+                            file_idx,
+                            SquareBand::Top,
+                        ));
+                        middle.push_str(&render_large_square(
+                            None,
+                            rank_idx,
+                            file_idx,
+                            SquareBand::Middle,
+                        ));
+                        bottom.push_str(&render_large_square(
+                            None,
+                            rank_idx,
+                            file_idx,
+                            SquareBand::Bottom,
+                        ));
+                        file_idx += 1;
+                    }
+                }
+                'p' | 'r' | 'n' | 'b' | 'q' | 'k' | 'P' | 'R' | 'N' | 'B' | 'Q' | 'K' => {
+                    top.push_str(&render_large_square(
+                        Some(ch),
+                        rank_idx,
+                        file_idx,
+                        SquareBand::Top,
+                    ));
+                    middle.push_str(&render_large_square(
+                        Some(ch),
+                        rank_idx,
+                        file_idx,
+                        SquareBand::Middle,
+                    ));
+                    bottom.push_str(&render_large_square(
+                        Some(ch),
+                        rank_idx,
+                        file_idx,
+                        SquareBand::Bottom,
+                    ));
+                    file_idx += 1;
+                }
+                _ => anyhow::bail!("invalid board character in FEN: {}", ch),
+            }
+        }
+
+        if file_idx != 8 {
+            anyhow::bail!("FEN rank does not contain 8 files: {}", rank);
+        }
+
+        out.push_str(&top);
+        out.push('\n');
+        out.push_str(&middle);
+        out.push('\n');
+        out.push_str(&bottom);
+        out.push('\n');
+    }
+
+    out.push_str("   ");
+    for file in ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] {
+        out.push_str(&format!("  {}  ", file));
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Copy)]
+enum SquareBand {
+    Top,
+    Middle,
+    Bottom,
+}
+
+fn render_large_square(
+    piece: Option<char>,
+    rank_idx: usize,
+    file_idx: usize,
+    band: SquareBand,
+) -> String {
+    let dark_square = (rank_idx + file_idx) % 2 == 1;
+    let bg = if dark_square {
+        "\x1b[48;5;101m"
+    } else {
+        "\x1b[48;5;223m"
+    };
+    let fg = match piece {
+        Some(ch) if ch.is_uppercase() => "\x1b[38;5;255m",
+        Some(_) => "\x1b[38;5;16m",
+        None => "",
+    };
+    let content = match band {
+        SquareBand::Top | SquareBand::Bottom => "     ".to_string(),
+        SquareBand::Middle => format!("  {}  ", piece.map(unicode_piece).unwrap_or(' ')),
+    };
+
+    format!("{}{fg}{}\x1b[0m", bg, content)
 }
 
 fn render_square(piece: Option<char>, rank_idx: usize, file_idx: usize, use_color: bool) -> String {
