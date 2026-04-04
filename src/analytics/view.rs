@@ -11,7 +11,7 @@ use viriformat::dataformat::Game as ViriGame;
 
 use crate::cli::Backend;
 
-const LARGE_SQUARE_WIDTH: usize = 5;
+const LARGE_SQUARE_WIDTH: usize = 7;
 const LARGE_BOARD_LEFT_MARGIN: usize = 3;
 const BOARD_FILES: usize = 8;
 
@@ -663,7 +663,7 @@ fn render_large_board(ranks: &[&str]) -> Result<String> {
 
     out.push_str("   ");
     for file in ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] {
-        out.push_str(&format!("  {}  ", file));
+        out.push_str(&format!("   {}   ", file));
     }
     Ok(out)
 }
@@ -693,8 +693,8 @@ fn render_large_square(
         None => "",
     };
     let content = match band {
-        SquareBand::Top | SquareBand::Bottom => "     ".to_string(),
-        SquareBand::Middle => format!("  {}  ", piece.map(unicode_piece).unwrap_or(' ')),
+        SquareBand::Top | SquareBand::Bottom => "       ".to_string(),
+        SquareBand::Middle => format!("   {}   ", piece.map(unicode_piece).unwrap_or(' ')),
     };
 
     format!("{}{fg}{}\x1b[0m", bg, content)
