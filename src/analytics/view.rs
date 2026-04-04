@@ -5,7 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use crossterm::cursor::MoveTo;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType};
 use sfbinpack::CompressedTrainingDataEntryReader;
 use viriformat::dataformat::Game as ViriGame;
 
@@ -394,6 +394,7 @@ impl RawModeGuard {
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
     }
 }
 
