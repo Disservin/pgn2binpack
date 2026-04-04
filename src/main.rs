@@ -9,11 +9,15 @@ mod process;
 mod util;
 mod wdl;
 
-use crate::cli::{Backend, Cli};
+use crate::cli::Cli;
 use crate::process::process_pgn_files;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.limit.is_some() && cli.unique.is_none() && cli.view.is_none() {
+        anyhow::bail!("--limit can only be used with --unique or --view");
+    }
 
     if let Some(threads) = cli.threads {
         rayon::ThreadPoolBuilder::new()
