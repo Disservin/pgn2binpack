@@ -2,6 +2,7 @@
 name = "pgn2binpack"
 version = "0.1.0"
 edition = "2021"
+default-run = "pgn2binpack"
 
 [dependencies]
 anyhow = "1.0.100"
