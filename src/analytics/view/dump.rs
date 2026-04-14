@@ -2,7 +2,7 @@ use std::io::{Read, Seek};
 
 use anyhow::Result;
 
-use super::{render_board, ViewSession};
+use super::ViewSession;
 
 pub(super) fn dump_frames<T: Read + Seek>(session: &mut ViewSession<T>) -> Result<()> {
     let mut index = 0usize;
@@ -14,6 +14,9 @@ pub(super) fn dump_frames<T: Read + Seek>(session: &mut ViewSession<T>) -> Resul
         println!("fen {}", frame.fen);
         println!("uci move {}", frame.uci_move);
         println!("score {}", frame.score);
+        if let Some(detail) = &frame.score_detail {
+            println!("score detail {}", detail);
+        }
         println!("ply {}", frame.ply);
         println!("result {}", frame.result);
         println!();

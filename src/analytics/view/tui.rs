@@ -6,7 +6,10 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType};
 
-use super::{render_board, side_to_move, ViewSession, BOARD_FILES, LARGE_BOARD_LEFT_MARGIN, LARGE_SQUARE_WIDTH};
+use super::{
+    render_board, side_to_move, ViewSession, BOARD_FILES, LARGE_BOARD_LEFT_MARGIN,
+    LARGE_SQUARE_WIDTH,
+};
 
 pub(super) fn browse_frames<T: Read + Seek>(session: &mut ViewSession<T>) -> Result<()> {
     if !session.ensure_loaded(0)? {
@@ -174,6 +177,11 @@ fn render_frame(
     let right_panel_width = term_width.saturating_sub(right_panel_x);
 
     let left_panel: Vec<String> = Vec::new();
+    let eval_line = match &frame.score_detail {
+        Some(detail) => format!("Eval:  {} ({})", frame.score, detail),
+        None => format!("Eval:  {}", frame.score),
+    };
+
     let mut right_panel = vec![
         format!("Position {}", index + 1),
         format!("Total:    {}", total_display),
@@ -184,7 +192,7 @@ fn render_frame(
         format!("Result:   {}", frame.result),
         String::new(),
         format!("Move:  {}", frame.uci_move),
-        format!("Eval:  {}", frame.score),
+        eval_line,
         String::new(),
         "FEN".to_string(),
         String::new(),

@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use std::io::{self, BufReader, ErrorKind, IsTerminal, Read, Seek};
 
 use anyhow::{anyhow, Context, Result};
+use sfbinpack::chess::piece::Piece;
 use sfbinpack::CompressedTrainingDataEntryReader;
 use viriformat::dataformat::Game as ViriGame;
 
@@ -26,6 +27,7 @@ pub(super) struct ViewFrame {
     pub(super) fen: String,
     pub(super) uci_move: String,
     pub(super) score: String,
+    pub(super) score_detail: Option<String>,
     pub(super) ply: u32,
     pub(super) result: String,
 }
@@ -173,6 +175,7 @@ impl<T: Read + Seek> SfSource<T> {
                 .map_err(|err| anyhow!("failed to render FEN for entry: {err:?}"))?,
             uci_move: entry.mv.as_uci().to_string(),
             score: format_score(i32::from(entry.score)),
+            score_detail: format_score_detail(&entry),
             ply: entry.ply.into(),
             result: format!("{:?}", entry.result),
         };
@@ -242,6 +245,7 @@ fn build_viriformat_frames(game: ViriGame, game_index: usize) -> Result<VecDeque
             fen: board.to_string(),
             uci_move: mv.display(false).to_string(),
             score: format_score(i32::from(eval.get())),
+            score_detail: None,
             ply: board.ply() as u32,
             result: format!("{:?}", game.outcome()),
         });
@@ -452,6 +456,37 @@ fn format_score(score: i32) -> String {
     } else {
         score.to_string()
     }
+}
+
+fn format_score_detail(entry: &sfbinpack::TrainingDataEntry) -> Option<String> {
+    if entry.score != 0 {
+        return None;
+    }
+
+    let is_capture = is_capturing_move(entry);
+    let is_in_check = in_check(entry);
+
+    if !(is_capture || is_in_check) {
+        return None;
+    }
+
+    let reason = match (is_capture, is_in_check) {
+        (true, true) => "capture + in-check",
+        (true, false) => "capture",
+        (false, true) => "in-check",
+        (false, false) => unreachable!("guarded above"),
+    };
+
+    Some(format!("skipped ({reason})"))
+}
+
+fn is_capturing_move(entry: &sfbinpack::TrainingDataEntry) -> bool {
+    entry.pos.piece_at(entry.mv.to()) != Piece::none()
+        && entry.pos.piece_at(entry.mv.to()).color() != entry.pos.piece_at(entry.mv.from()).color()
+}
+
+fn in_check(entry: &sfbinpack::TrainingDataEntry) -> bool {
+    entry.pos.is_checked(entry.pos.side_to_move())
 }
 
 fn unicode_piece(piece: char) -> char {
