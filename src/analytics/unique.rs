@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::io::{BufReader, ErrorKind, Read, Seek};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use sfbinpack::CompressedTrainingDataEntryReader;
 use shakmaty::{
     fen::Fen, uci::UciMove, zobrist::Zobrist64, zobrist::ZobristHash, CastlingMode, Chess,

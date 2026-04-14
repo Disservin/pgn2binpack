@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.100"
 clap = { version = "4.5.48", features = ["derive"] }
+crossterm = "0.29.0"
 flate2 = "1.1.2"
 human_bytes = "0.4.3"
 pgn-reader = "0.28.0"
