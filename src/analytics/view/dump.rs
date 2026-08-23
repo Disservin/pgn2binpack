@@ -2,7 +2,7 @@ use std::io::{Read, Seek};
 
 use anyhow::Result;
 
-use super::{render_board, ViewSession};
+use super::ViewSession;
 
 pub(super) fn dump_frames<T: Read + Seek>(session: &mut ViewSession<T>) -> Result<()> {
     let mut index = 0usize;

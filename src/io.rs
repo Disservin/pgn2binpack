@@ -32,7 +32,7 @@ fn is_pgn_file(path: &Path) -> bool {
         .and_then(|ext| ext.to_str())
         .map(|s| {
             let lower = s.to_ascii_lowercase();
-            lower == "pgn" || path.to_str().map_or(false, |p| p.ends_with(".pgn.gz"))
+            lower == "pgn" || path.to_str().is_some_and(|p| p.ends_with(".pgn.gz"))
         })
         .unwrap_or(false)
 }
