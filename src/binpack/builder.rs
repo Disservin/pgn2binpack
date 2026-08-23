@@ -21,6 +21,7 @@ use viriformat::{
     chess::{
         board::{Board as ViriBoard, DrawType, GameOutcome, WinType},
         chessmove::Move as ViriMove,
+        piece::Colour,
     },
     dataformat::Game as ViriGame,
 };
@@ -363,6 +364,7 @@ struct ViriformatVisitor<'a, T: Write + Seek> {
     viri_board: ViriBoard,
     game: Option<ViriGame>,
     pending_move: Option<ViriMove>,
+    pending_move_side: Option<Colour>,
     pending_eval_set: bool,
     moves: u32,
 }
@@ -377,6 +379,7 @@ impl<'a, T: Write + Seek> ViriformatVisitor<'a, T> {
             viri_board: ViriBoard::default(),
             game: None,
             pending_move: None,
+            pending_move_side: None,
             pending_eval_set: false,
             moves: 0,
         }
@@ -389,6 +392,7 @@ impl<'a, T: Write + Seek> ViriformatVisitor<'a, T> {
         self.viri_board = ViriBoard::default();
         self.game = None;
         self.pending_move = None;
+        self.pending_move_side = None;
         self.pending_eval_set = false;
         self.moves = 0;
     }
@@ -427,6 +431,7 @@ impl<'a, T: Write + Seek> ViriformatVisitor<'a, T> {
             .take()
             .context("no pending move available")?;
 
+        debug_assert!(self.pending_move_side.is_some());
         if !self.pending_eval_set {
             bail!("pending evaluation was not set before flush");
         }
@@ -438,17 +443,20 @@ impl<'a, T: Write + Seek> ViriformatVisitor<'a, T> {
         game.add_move(mv, eval);
 
         self.pending_eval_set = false;
+        self.pending_move_side = None;
         Ok(())
     }
 
     fn handle_move(&mut self, mv: Move) -> Result<()> {
         self.moves += 1;
         if self.pending_move.is_some() {
+            debug_assert!(self.pending_move_side.is_some());
             bail!("previous move is still pending evaluation");
         }
 
         let viri_move = util::convert_move_viriformat(&mv)?;
         self.pending_move = Some(viri_move);
+        self.pending_move_side = Some(self.viri_board.turn());
         self.pending_eval_set = false;
 
         self.chess.play_unchecked(mv);
@@ -461,7 +469,10 @@ impl<'a, T: Write + Seek> ViriformatVisitor<'a, T> {
 
     fn attach_comment_eval(&mut self, comment: &str) -> Result<()> {
         let cp = match util::parse_eval_cp(comment) {
-            Ok(Some(v)) => v,
+            Ok(Some(v)) => match self.pending_move_side.context("side to move not set")? {
+                Colour::White => v,
+                Colour::Black => v.checked_neg().context("score can't be properly negated")?,
+            },
             Ok(None) => return Ok(()),
             Err(_) => bail!("failed to parse evaluation from comment: {}", comment),
         };
