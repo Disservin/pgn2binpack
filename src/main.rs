@@ -43,7 +43,7 @@ fn main() -> Result<()> {
                     output
                 );
             }
-            std::fs::remove_file(output)?;
+            std::fs::remove_file(&output)?;
         }
 
         if !input.exists() {
@@ -57,10 +57,10 @@ fn main() -> Result<()> {
         println!();
 
         let t0 = std::time::Instant::now();
-        let count = process_pgn_files(&input, output, cli.memory, cli.backend)?;
+        let count = process_pgn_files(&input, &output, cli.memory, cli.backend)?;
         println!("Time taken: {:.2?}", t0.elapsed());
 
-        let filesize = std::fs::metadata(output)?.len();
+        let filesize = std::fs::metadata(&output)?.len();
         println!("\n✓ Binpack created successfully");
         println!("  Output: {}", output.display());
         println!("  Size: {}", human_bytes::human_bytes(filesize as f64));

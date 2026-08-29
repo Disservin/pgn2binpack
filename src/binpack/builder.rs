@@ -27,8 +27,8 @@ use viriformat::{
 };
 
 use crate::cli::Backend;
-use crate::util;
-use crate::wdl;
+use crate::util::util;
+use crate::wdl::wdl;
 
 pub struct BinpackBuilder<T: Write + Seek> {
     input: PathBuf,
@@ -605,7 +605,7 @@ impl<'a, T: Write + Seek> Visitor for ViriformatVisitor<'a, T> {
             ));
         }
 
-        let game = self
+        let mut game = self
             .game
             .take()
             .context("missing game state when finishing viriformat output")?;
